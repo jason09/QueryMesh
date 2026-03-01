@@ -3,7 +3,6 @@
 ![QueryMesh logo](./assets/querymesh-logo.svg)
 
 QueryMesh is a compact **query builder + light ORM** for Node.js with multi-database support.
-Package name on npm: `querymesh`.
 
 ## Supported dialects
 

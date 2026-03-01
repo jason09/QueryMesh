@@ -1,6 +1,20 @@
 {
   "name": "querymesh",
-  "version": "0.0.1",
+  "version": "0.0.3",
+  "description": "Lightweight multi-dialect query builder and ORM for Node.js (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB).",
+  "keywords": [
+    "querymesh",
+    "query-builder",
+    "orm",
+    "sql",
+    "mongodb",
+    "postgresql",
+    "mysql",
+    "mssql",
+    "oracle",
+    "nodejs"
+  ],
+  "author": "jason90 <sidiki90@gmail.com>",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -16,9 +30,13 @@
     "README.md",
     "LICENSE"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jason09/QueryMesh.git"
+  },
   "scripts": {
     "build": "node ./scripts/build.js",
-    "test": "node --test"
+    "test": "node --test test/*.test.js"
   },
   "devDependencies": {
     "typescript": "^5.6.0"
@@ -27,7 +45,8 @@
     "mongodb": "^7.1.0",
     "mssql": "*",
     "mysql": "*",
-    "oracledb": "*"
+    "oracledb": "*",
+    "pg": "*"
   },
   "license": "MIT"
 }

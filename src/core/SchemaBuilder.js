@@ -446,6 +446,8 @@ export class SchemaBuilder {
     this.adapter = adapter;
     this.dialect = adapter.dialect;
     this._sql = null;
+    this._postSql = [];
+    this._meta = null;
   }
 
   /**
@@ -491,8 +493,9 @@ alterTable(name, fn) {
   if (this.dialect === 'mongo') throw new Error('Schema builder is SQL-only');
   const t = new AlterTableBuilder(this.adapter, name);
   fn(t);
-  this._sql = t.toSQL();
-  this._postSql = t.postSQL();
+  const main = Array.isArray(t._sql) ? t._sql.slice() : [];
+  this._sql = main.shift() ?? null;
+  this._postSql = [...main, ...t.postSQL()];
 
   if (t._timestamps && this.dialect !== 'mysql') {
     this._postSql.push(...this._timestampTriggerSql(name, []));
@@ -1431,7 +1434,8 @@ _timestampTriggerSql(table, pkCols) {
         const trgName = evs.length === 1 ? trg : `${trg}_${ev.toLowerCase()}`;
         out.push(`CREATE TRIGGER ${quoteIdent(d, trgName)} ${t} ${ev} ON ${quoteIdent(d, tbl)} FOR EACH ROW BEGIN\n${b}\nEND`);
       }
-      this._sql = out.join(';');
+      this._sql = out[0] ?? null;
+      this._postSql = out.slice(1);
       return this;
     }
 
@@ -1488,89 +1492,6 @@ _timestampTriggerSql(table, pkCols) {
     throw new Error(`${d}: dropTrigger not supported`);
   }
 
-  /**
-   * Create a trigger (best-effort). For PostgreSQL, SQuery auto-creates a helper function <name>_fn.
-   * @param {{name:string, table:string, timing:'BEFORE'|'AFTER', events:string[], body:string}} spec
-   */
-  createTrigger(spec) {
-    const d = this.dialect;
-    const name = String(spec.name);
-    const table = String(spec.table);
-    const timing = String(spec.timing || 'BEFORE').toUpperCase();
-    const events = (spec.events || ['UPDATE']).map(e => String(e).toUpperCase());
-    const body = String(spec.body || '').trim();
-
-    if (!name || !table || !events.length) throw new Error('createTrigger requires {name, table, timing, events, body}');
-
-    if (d === 'pg') {
-      const fnName = `${name}_fn`;
-      this._sql = `CREATE OR REPLACE FUNCTION ${quoteIdent(d, fnName)}() RETURNS trigger AS $$\nBEGIN\n  ${body}\n  RETURN NEW;\nEND;\n$$ LANGUAGE plpgsql;\n` +
-        `DROP TRIGGER IF EXISTS ${quoteIdent(d, name)} ON ${quoteIdent(d, table)};\n` +
-        `CREATE TRIGGER ${quoteIdent(d, name)} ${timing} ${events.join(' OR ')} ON ${quoteIdent(d, table)} FOR EACH ROW EXECUTE FUNCTION ${quoteIdent(d, fnName)}();`;
-      return this;
-    }
-
-    if (d === 'mysql') {
-      if (events.length !== 1) throw new Error('mysql: triggers support only one event per trigger');
-      // Note: MySQL requires delimiter changes in interactive shells, but the driver can execute it as a single string.
-      this._sql = `DROP TRIGGER IF EXISTS ${quoteIdent(d, name)};\nCREATE TRIGGER ${quoteIdent(d, name)} ${timing} ${events[0]} ON ${quoteIdent(d, table)} FOR EACH ROW ${body}`;
-      return this;
-    }
-
-    if (d === 'mssql') {
-      // MSSQL uses CREATE TRIGGER ... AS BEGIN ... END
-      this._sql = `IF OBJECT_ID(N'${name.replace(/'/g, "''")}', N'TR') IS NOT NULL DROP TRIGGER ${quoteIdent(d, name)};\n` +
-        `CREATE TRIGGER ${quoteIdent(d, name)} ON ${quoteIdent(d, table)} ${timing} ${events.join(', ')} AS\nBEGIN\n  ${body}\nEND`;
-      return this;
-    }
-
-    if (d === 'oracle') {
-      this._sql = `BEGIN\n  EXECUTE IMMEDIATE 'DROP TRIGGER ${name.replace(/'/g,"''")}';\nEXCEPTION WHEN OTHERS THEN NULL;\nEND;\n/\n` +
-        `CREATE OR REPLACE TRIGGER ${quoteIdent(d, name)} ${timing} ${events.join(' OR ')} ON ${quoteIdent(d, table)} FOR EACH ROW\nBEGIN\n  ${body}\nEND;`;
-      return this;
-    }
-
-    throw new Error(`${d}: createTrigger not supported`);
-  }
-
-  /**
-   * Drop a trigger (best-effort).
-   * @param {string} name
-   * @param {{table?: string, ifExists?: boolean}} [opts]
-   */
-  dropTrigger(name, opts = {}) {
-    const d = this.dialect;
-    const n = String(name);
-    const ifExists = opts.ifExists !== false;
-
-    if (d === 'pg') {
-      if (!opts.table) throw new Error('pg: dropTrigger requires opts.table');
-      this._sql = `DROP TRIGGER${ifExists ? ' IF EXISTS' : ''} ${quoteIdent(d, n)} ON ${quoteIdent(d, opts.table)}`;
-      return this;
-    }
-
-    if (d === 'mysql') {
-      this._sql = ifExists ? `DROP TRIGGER IF EXISTS ${quoteIdent(d, n)}` : `DROP TRIGGER ${quoteIdent(d, n)}`;
-      return this;
-    }
-
-    if (d === 'mssql') {
-      this._sql = ifExists
-        ? `IF OBJECT_ID(N'${n.replace(/'/g, "''")}', N'TR') IS NOT NULL DROP TRIGGER ${quoteIdent(d, n)}`
-        : `DROP TRIGGER ${quoteIdent(d, n)}`;
-      return this;
-    }
-
-    if (d === 'oracle') {
-      this._sql = ifExists
-        ? `BEGIN EXECUTE IMMEDIATE 'DROP TRIGGER ${n.replace(/'/g,"''")}'; EXCEPTION WHEN OTHERS THEN NULL; END;`
-        : `DROP TRIGGER ${quoteIdent(d, n)}`;
-      return this;
-    }
-
-    throw new Error(`${d}: dropTrigger not supported`);
-  }
-
   async _runSelect(sql, params = []) {
     const qb = {
       dialect: this.dialect,
@@ -1609,7 +1530,9 @@ _timestampTriggerSql(table, pkCols) {
    * Execute schema statement.
    */
   async exec() {
-    if (!this._sql) throw new Error('No schema statement');
+    const hasMain = typeof this._sql === 'string' && this._sql.trim().length > 0;
+    const hasPost = Array.isArray(this._postSql) && this._postSql.length > 0;
+    if (!hasMain && !hasPost) throw new Error('No schema statement');
     // run raw execution using adapter
     const runOne = async (sql) => {
       const qb = { dialect: this.dialect, compile: () => ({ sql, params: [] }), _type: 'schema', _returning: null };
@@ -1666,12 +1589,12 @@ _timestampTriggerSql(table, pkCols) {
       }
     }
 
-    // run main statement(s)
-    const main = String(this._sql).split(';').map(s => s.trim()).filter(Boolean);
     let res = null;
-    for (const s of main) res = await runOne(s);
+    if (hasMain) {
+      res = await runOne(String(this._sql));
+    }
 
-    if (this._postSql && this._postSql.length) {
+    if (hasPost) {
       for (const s of this._postSql) {
         try { await runOne(s); } catch (e) {
           // Best-effort post statements (e.g., MySQL dropConstraint auto tries)
