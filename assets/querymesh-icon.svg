@@ -1,0 +1,31 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="querymesh icon">
+  <defs>
+    <style>
+      .bg { fill: #0B1020; }
+      .line { stroke: #cbd5e1; stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; opacity: 0.9; }
+      .node-main { fill: #3B82F6; }
+      .node-alt { fill: #14B8A6; }
+      .center { fill: #ffffff; }
+      .q-cut { fill: #0B1020; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="512" height="512" rx="96" />
+
+  <line class="line" x1="256" y1="256" x2="118" y2="108" />
+  <line class="line" x1="256" y1="256" x2="394" y2="108" />
+  <line class="line" x1="256" y1="256" x2="438" y2="256" />
+  <line class="line" x1="256" y1="256" x2="394" y2="404" />
+  <line class="line" x1="256" y1="256" x2="118" y2="404" />
+
+  <circle class="center" cx="256" cy="256" r="96" />
+  <circle class="q-cut" cx="256" cy="256" r="60" />
+  <rect class="center" x="302" y="300" width="56" height="16" rx="8" transform="rotate(35 330 308)" />
+
+  <circle class="node-main" cx="118" cy="108" r="26" />
+  <circle class="node-alt" cx="394" cy="108" r="26" />
+  <circle class="node-main" cx="438" cy="256" r="26" />
+  <circle class="node-alt" cx="394" cy="404" r="26" />
+  <circle class="node-main" cx="118" cy="404" r="26" />
+  <circle class="node-alt" cx="256" cy="256" r="24" />
+</svg>

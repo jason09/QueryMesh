@@ -20,6 +20,7 @@ export interface SwitchDialectOptions {
   closeCurrent?: boolean;
   features?: Record<string, any>;
   importer?: (name: string) => Promise<any> | any;
+  [k: string]: any;
 }
 
 export interface ProgressEvent {

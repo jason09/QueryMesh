@@ -1,6 +1,9 @@
-# SQuery
+# QueryMesh
 
-SQuery is a compact **query builder + light ORM** for Node.js with multi-database support.
+![QueryMesh logo](./assets/querymesh-logo.svg)
+
+QueryMesh is a compact **query builder + light ORM** for Node.js with multi-database support.
+Package name on npm: `querymesh`.
 
 ## Supported dialects
 
@@ -13,7 +16,7 @@ SQuery is a compact **query builder + light ORM** for Node.js with multi-databas
 ## Install
 
 ```bash
-npm i squery
+npm i querymesh
 
 # install only the driver(s) you need
 npm i pg
@@ -26,10 +29,10 @@ npm i mongodb
 ## Connect
 
 ```js
-import SQuery from "squery";
+import QueryMesh from "querymesh";
 
 // PostgreSQL
-const db = await SQuery.connect({
+const db = await QueryMesh.connect({
   dialect: "pg",
   config: { connectionString: process.env.DATABASE_URL },
   // also accepts { server, user, password, database } (server -> host alias)
@@ -38,22 +41,22 @@ const db = await SQuery.connect({
 });
 
 // MySQL
-// const db = await SQuery.connect({
+// const db = await QueryMesh.connect({
 //   dialect: "mysql",
 //   config: { host: "127.0.0.1", user: "root", password: "", database: "app" },
 // });
 
 // SQL Server
-// const db = await SQuery.connect({
+// const db = await QueryMesh.connect({
 //   dialect: "mssql",
 //   config: { server: "localhost", user: "sa", password: "pass", database: "master", options: { trustServerCertificate: true } },
 // });
 
 // Oracle
-// const db = await SQuery.connect({ dialect: "oracle", config: { user, password, connectString } });
+// const db = await QueryMesh.connect({ dialect: "oracle", config: { user, password, connectString } });
 
 // MongoDB
-// const db = await SQuery.connect({
+// const db = await QueryMesh.connect({
 //   dialect: "mongo", // alias: "mongodb"
 //   config: { connectionString: "mongodb://localhost:27017/app" }, // or { uri, dbName }
 // });
@@ -295,7 +298,7 @@ MongoDB uses sessions when available.
 ## Model layer
 
 ```js
-import { BaseModel } from "squery";
+import { BaseModel } from "querymesh";
 
 class User extends BaseModel {
   static table = "users";
@@ -439,7 +442,7 @@ await db.schema().createDatabase("my_app_db", {
 
 Notes:
 
-- **Postgres** does not support `CREATE DATABASE IF NOT EXISTS` in a single SQL statement. SQuery performs a pre-check and skips creation when it already exists.
+- **Postgres** does not support `CREATE DATABASE IF NOT EXISTS` in a single SQL statement. QueryMesh performs a pre-check and skips creation when it already exists.
 - **SQL Server** wraps creation with `IF DB_ID(...) IS NULL` when `ifNotExists` is true.
 - **Oracle** database creation is a DBA operation and is not implemented.
 
@@ -481,7 +484,7 @@ await db.schema().dropTrigger("trg_users_touch", { table: "users", ifExists: tru
 
 ## Import/Export (backup)
 
-SQuery wraps native CLI tools and provides progress events.
+QueryMesh wraps native CLI tools and provides progress events.
 
 ```js
 const job = db.backup().export({
@@ -497,8 +500,8 @@ await job.done;
 ```
 
 Import progress notes:
-- When the tool can read from stdin (for example `mysql`, `psql`, `pg_restore` custom/tar, `mongorestore --archive`), SQuery emits byte-based progress.
-- For non-stdin restore paths (for example directory restores or engine-native restore commands), SQuery emits best-effort progress by parsing `%` from tool logs plus start/end milestones.
+- When the tool can read from stdin (for example `mysql`, `psql`, `pg_restore` custom/tar, `mongorestore --archive`), QueryMesh emits byte-based progress.
+- For non-stdin restore paths (for example directory restores or engine-native restore commands), QueryMesh emits best-effort progress by parsing `%` from tool logs plus start/end milestones.
 
 Export progress notes:
 - `useStdout: true` emits byte progress from streamed stdout.
@@ -533,12 +536,12 @@ await tools.getDiagnostics();  // ping + serverVersion + cli report
 
 ## TypeScript
 
-SQuery ships TypeScript typings.
+QueryMesh ships TypeScript typings.
 
 ```ts
-import SQuery from "squery";
+import QueryMesh from "querymesh";
 
-const db = await SQuery.connect({
+const db = await QueryMesh.connect({
   dialect: "pg",
   config: { connectionString: process.env.DATABASE_URL as string },
 });
@@ -546,7 +549,7 @@ const db = await SQuery.connect({
 
 ## API Reference (by module)
 
-### Module: `SQuery` (root)
+### Module: `QueryMesh` (root)
 
 - `connect({ dialect, config, features?, importer? })`
 - `raw(sql, params?)`

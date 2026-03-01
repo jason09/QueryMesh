@@ -82,7 +82,7 @@ function normalizePgConfig(config) {
 /**
  * Connect to a database and return a DB instance.
  *
- * @param {{dialect: Dialect, config: any, features?: Record<string, any>}} options
+ * @param {{dialect: Dialect, config: any, features?: Record<string, any>, importer?: (name:string)=>Promise<any>|any}} options
  * @returns {Promise<DB>}
  */
 export async function connect(options) {

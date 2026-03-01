@@ -249,6 +249,34 @@ test("DB.switchDialect uses current adapter feature importer when opts.importer 
   assert.equal(capturedCfg.database, "app_b");
 });
 
+test("DB.switchDialect merges current and provided features", async () => {
+  let importedPkg = null;
+
+  class FakePool {
+    async query() { return { rows: [], rowCount: 0 }; }
+    async end() {}
+  }
+
+  const db = new DB({
+    dialect: "mysql",
+    features: {
+      keepExisting: true,
+      driverImporter: async (pkg) => {
+        importedPkg = pkg;
+        return { Pool: FakePool };
+      },
+    },
+  });
+
+  await db.switchDialect("pg", { database: "app_b" }, {
+    features: { extraFlag: true },
+  });
+
+  assert.equal(importedPkg, "pg");
+  assert.equal(db.adapter.features.keepExisting, true);
+  assert.equal(db.adapter.features.extraFlag, true);
+});
+
 test("DB.switchDialect respects closeCurrent=false", async () => {
   let closed = false;
 

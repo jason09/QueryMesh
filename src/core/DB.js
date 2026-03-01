@@ -120,8 +120,14 @@ export class DB {
       throw new Error('switchDialect(dialect, config) requires a config object');
     }
 
-    const features = opts.features ?? this.adapter?.features ?? {};
-    const importer = opts.importer ?? features?.driverImporter;
+    const currentFeatures = (this.adapter && typeof this.adapter.features === 'object' && this.adapter.features)
+      ? this.adapter.features
+      : {};
+    const providedFeatures = (opts.features && typeof opts.features === 'object')
+      ? opts.features
+      : {};
+    const features = { ...currentFeatures, ...providedFeatures };
+    const importer = opts.importer ?? providedFeatures.driverImporter ?? currentFeatures.driverImporter;
     const { connect } = await import('../index.js');
     const nextDb = await connect({ dialect: /** @type {any} */(d), config, features, importer });
 
