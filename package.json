@@ -1,6 +1,6 @@
 {
   "name": "querymesh",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Lightweight multi-dialect query builder and ORM for Node.js (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB).",
   "keywords": [
     "querymesh",
