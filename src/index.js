@@ -11,7 +11,7 @@ import { SQueryError } from './utils/errors.js';
 import { ToolsManager } from './tools/ToolsManager.js';
 
 /**
- * @typedef {'pg'|'mysql'|'mssql'|'oracle'|'mongo'|'mongodb'} Dialect
+ * @typedef {'pg'|'mysql'|'mssql'|'oracle'|'mongo'|'mongodb'|'mongoose'} Dialect
  */
 
 const DIALECT_PACKAGE = {
@@ -31,6 +31,7 @@ function isMissingModuleError(err, pkg) {
 
 function normalizeDialect(dialect) {
   if (dialect === 'mongodb') return 'mongo';
+  if (dialect === 'mongoose') return 'mongo';
   return dialect;
 }
 
@@ -62,6 +63,12 @@ async function importDialectPackage(dialect, importer = (name) => import(name), 
   }
 }
 
+function resolveModuleExport(mod, name) {
+  if (mod && typeof mod === 'object' && name in mod) return mod[name];
+  if (mod?.default && typeof mod.default === 'object' && name in mod.default) return mod.default[name];
+  return undefined;
+}
+
 function normalizePgConfig(config) {
   const raw = (config && typeof config === 'object') ? { ...config } : {};
   const nestedOptions = (raw.options && typeof raw.options === 'object' && !Array.isArray(raw.options))
@@ -77,6 +84,99 @@ function normalizePgConfig(config) {
   // If options was an object we already flattened it; remove the wrapper key.
   if (nestedOptions) delete c.options;
   return c;
+}
+
+function normalizeMySqlConfig(config) {
+  const raw = (config && typeof config === 'object') ? { ...config } : {};
+  const nestedOptions = (raw.options && typeof raw.options === 'object' && !Array.isArray(raw.options))
+    ? raw.options
+    : null;
+
+  // Allow config.options as a convenience bag for mysql pool options.
+  const c = nestedOptions ? { ...nestedOptions, ...raw } : raw;
+
+  if (c.host == null && c.server != null) c.host = c.server;
+  if (c.database == null && c.dbName != null) c.database = c.dbName;
+
+  if (nestedOptions) delete c.options;
+  return c;
+}
+
+function normalizeMongoConfig(config) {
+  const raw = (config && typeof config === 'object') ? { ...config } : {};
+  const optionsBag = (raw.options && typeof raw.options === 'object' && !Array.isArray(raw.options))
+    ? raw.options
+    : null;
+  const clientOptionsBag = (raw.clientOptions && typeof raw.clientOptions === 'object' && !Array.isArray(raw.clientOptions))
+    ? raw.clientOptions
+    : null;
+
+  const c = { ...raw };
+  if (c.host == null && c.server != null) c.host = c.server;
+  if (c.dbName == null && c.database != null) c.dbName = c.database;
+
+  if (optionsBag || clientOptionsBag) {
+    c.clientOptions = { ...(optionsBag ?? {}), ...(clientOptionsBag ?? {}) };
+  }
+
+  if (optionsBag) delete c.options;
+  return c;
+}
+
+function buildMongoUriFromConfig(config) {
+  const host = String(config?.host ?? '').trim();
+  if (!host) return null;
+
+  const hasPort = config?.port != null && String(config.port).trim() !== '';
+  const port = hasPort ? `:${String(config.port).trim()}` : '';
+
+  const userRaw = config?.user ?? config?.username;
+  const passRaw = config?.password;
+  let auth = '';
+  if (userRaw != null && String(userRaw).trim() !== '') {
+    const user = encodeURIComponent(String(userRaw));
+    const pass = passRaw == null ? '' : `:${encodeURIComponent(String(passRaw))}`;
+    auth = `${user}${pass}@`;
+  }
+
+  const dbNameRaw = config?.dbName ?? config?.database;
+  const dbPath = (dbNameRaw != null && String(dbNameRaw).trim() !== '')
+    ? `/${encodeURIComponent(String(dbNameRaw).trim())}`
+    : '';
+
+  return `mongodb://${auth}${host}${port}${dbPath}`;
+}
+
+function resolveMongoDbHandle(config) {
+  const c = (config && typeof config === 'object') ? config : {};
+  const directDb = c.db;
+  if (directDb && typeof directDb.collection === 'function') {
+    if (!directDb.client && c.client) directDb.client = c.client;
+    return directDb;
+  }
+
+  const candidates = [
+    c.connection,
+    c.mongooseConnection,
+    c.mongoose?.connection,
+    c.mongoose,
+  ];
+
+  for (const conn of candidates) {
+    if (!conn || typeof conn !== 'object') continue;
+    const db = conn.db;
+    if (!db || typeof db.collection !== 'function') continue;
+
+    let client = db.client ?? null;
+    if (!client && typeof conn.getClient === 'function') {
+      try { client = conn.getClient(); } catch {}
+    }
+    if (!client && conn.client) client = conn.client;
+    if (!client && c.client) client = c.client;
+    if (client && !db.client) db.client = client;
+    return db;
+  }
+  return null;
 }
 
 /**
@@ -95,46 +195,75 @@ export async function connect(options) {
   if (!dialect) throw new Error('connect({dialect, config}) is required');
 
   if (dialect === 'pg') {
-    const { Pool } = await importDialectPackage('pg', importer, inputDialect);
-    const pool = new Pool(normalizePgConfig(config));
-    const adapter = new PgAdapter(pool, { features, config });
+    const pg = await importDialectPackage('pg', importer, inputDialect);
+    const Pool = resolveModuleExport(pg, 'Pool');
+    if (typeof Pool !== 'function') {
+      throw new Error('Invalid driver package "pg": missing Pool constructor export');
+    }
+    const cfg = normalizePgConfig(config);
+    const pool = new Pool(cfg);
+    const adapter = new PgAdapter(pool, { features, config: cfg });
     return new DB(adapter, { features });
   }
 
   if (dialect === 'mysql') {
     const mysql = await importDialectPackage('mysql', importer, inputDialect);
-    const pool = mysql.createPool(config);
-    const adapter = new MySqlAdapter(pool, { features, config });
+    const createPool = resolveModuleExport(mysql, 'createPool');
+    if (typeof createPool !== 'function') {
+      throw new Error('Invalid driver package "mysql": missing createPool export');
+    }
+    const cfg = normalizeMySqlConfig(config);
+    const pool = createPool(cfg);
+    const adapter = new MySqlAdapter(pool, { features, config: cfg });
     return new DB(adapter, { features });
   }
 
   if (dialect === 'mssql') {
     const mssql = await importDialectPackage('mssql', importer, inputDialect);
-    const pool = await mssql.connect(config);
+    const connectFn = resolveModuleExport(mssql, 'connect');
+    if (typeof connectFn !== 'function') {
+      throw new Error('Invalid driver package "mssql": missing connect export');
+    }
+    const pool = await connectFn(config);
     const adapter = new MsSqlAdapter(pool, { features, config });
     return new DB(adapter, { features });
   }
 
   if (dialect === 'oracle') {
     const oracledb = await importDialectPackage('oracle', importer, inputDialect);
-    const pool = await oracledb.createPool(config);
+    const createPool = resolveModuleExport(oracledb, 'createPool');
+    if (typeof createPool !== 'function') {
+      throw new Error('Invalid driver package "oracledb": missing createPool export');
+    }
+    const pool = await createPool(config);
     const adapter = new OracleAdapter(pool, { features, config });
     return new DB(adapter, { features });
   }
 
   if (dialect === 'mongo') {
-    const { MongoClient } = await importDialectPackage('mongo', importer, inputDialect);
-    const uri = config?.uri ?? config?.connectionString;
-    const dbName = config?.dbName ?? config?.database ?? inferMongoDbName(uri);
-    if (!uri || !dbName) {
-      throw new Error('Mongo config requires { uri, dbName } or { connectionString } with a database name');
+    const cfg = normalizeMongoConfig(config);
+    const providedDb = resolveMongoDbHandle(cfg);
+    if (providedDb) {
+      const adapter = new MongoAdapter(providedDb, { features, config: cfg });
+      return new DB(adapter, { features });
     }
-    const client = new MongoClient(uri, config?.clientOptions ?? {});
+
+    const mongo = await importDialectPackage('mongo', importer, inputDialect);
+    const MongoClient = resolveModuleExport(mongo, 'MongoClient');
+    if (typeof MongoClient !== 'function') {
+      throw new Error('Invalid driver package "mongodb": missing MongoClient constructor export');
+    }
+    const uri = cfg.uri ?? cfg.connectionString ?? buildMongoUriFromConfig(cfg);
+    const dbName = cfg.dbName ?? cfg.database ?? inferMongoDbName(uri);
+    if (!uri || !dbName) {
+      throw new Error('Mongo config requires { uri, dbName }, { connectionString } with database name, or { server/host, port?, database/dbName }');
+    }
+    const client = new MongoClient(uri, cfg.clientOptions ?? {});
     await client.connect();
     const db = client.db(dbName);
     // attach client so adapter can start sessions
     db.client = client;
-    const adapter = new MongoAdapter(db, { features, config });
+    const adapter = new MongoAdapter(db, { features, config: cfg });
     return new DB(adapter, { features });
   }
 

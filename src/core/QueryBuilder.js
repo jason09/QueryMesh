@@ -818,12 +818,17 @@ clearAggregates() {
   }
 
   _compileInsert(params) {
+    if (this._onConflict && (this.dialect === 'mssql' || this.dialect === 'oracle')) {
+      return this._compileMergeUpsertInsert(params);
+    }
+
     let sql;
+    const mssqlOutput = this._compileMssqlOutputClause('insert');
     if (this._insertSelect) {
       const cols = this._insertSelect.columns;
       const colSql = cols.map(c => this.q(c)).join(', ');
       const selectSql = this._compileSelectSource(this._insertSelect.source, params, 'insertSelect');
-      sql = `INSERT INTO ${this.q(this._table)} (${colSql}) ${selectSql}`;
+      sql = `INSERT INTO ${this.q(this._table)} (${colSql})${mssqlOutput} ${selectSql}`;
     } else {
       if (!this._insert || this._insert.length === 0) throw new Error('insert() requires data');
       const rows = this._insert;
@@ -846,7 +851,7 @@ clearAggregates() {
         return `(${vs})`;
       }).join(', ');
 
-      sql = `INSERT INTO ${this.q(this._table)} (${colSql}) VALUES ${valueSql}`;
+      sql = `INSERT INTO ${this.q(this._table)} (${colSql})${mssqlOutput} VALUES ${valueSql}`;
     }
 
     // upsert
@@ -861,11 +866,101 @@ clearAggregates() {
       sql += ` ON DUPLICATE KEY UPDATE ${set}`;
     }
 
-    if (this._returning && this.adapter.supportsReturning()) {
+    if (this._returning && this.adapter.supportsReturning() && this.dialect !== 'mssql') {
       sql += ` RETURNING ${this._returning.map(c => this.q(c)).join(', ')}`;
     }
 
     return sql;
+  }
+
+  _compileMergeUpsertInsert(params) {
+    if (this._insertSelect) {
+      throw new Error(`${this.dialect}: onConflictDoUpdate() does not support insertSelect()`);
+    }
+    if (!this._insert || this._insert.length !== 1) {
+      throw new Error(`${this.dialect}: onConflictDoUpdate() currently supports a single insert row`);
+    }
+    if (!isPlainObject(this._insert[0])) {
+      throw new Error('insert() expects object rows');
+    }
+
+    const row = this._insert[0];
+    const cols = Object.keys(row);
+    if (!cols.length) throw new Error('insert() expects at least one column');
+
+    const targetCols = (this._onConflict?.target ?? []).map(c => String(c)).filter(Boolean);
+    if (!targetCols.length) {
+      throw new Error('onConflictDoUpdate() requires at least one target column');
+    }
+
+    for (const col of targetCols) {
+      if (!Object.prototype.hasOwnProperty.call(row, col)) {
+        throw new Error(`onConflictDoUpdate target column "${col}" is missing from insert data`);
+      }
+    }
+
+    const updateEntries = Object.entries(this._onConflict?.update ?? {});
+    if (!updateEntries.length) {
+      throw new Error('onConflictDoUpdate() requires at least one update field');
+    }
+
+    const sourceSelect = cols.map((c) => {
+      const v = this.pushValue(row[c], params);
+      return this.dialect === 'oracle'
+        ? `${v} AS ${this.q(c)}`
+        : `${v} AS ${this.q(c)}`;
+    }).join(', ');
+
+    const sourceSql = this.dialect === 'oracle'
+      ? `(SELECT ${sourceSelect} FROM dual) source`
+      : `(SELECT ${sourceSelect}) AS source`;
+
+    const targetAlias = this.dialect === 'oracle' ? 'target' : 'target';
+    const onSql = targetCols
+      .map(c => `${targetAlias}.${this.q(c)} = source.${this.q(c)}`)
+      .join(' AND ');
+
+    const setSql = updateEntries
+      .map(([k, v]) => `${targetAlias}.${this.q(k)} = ${this.pushValue(v, params)}`)
+      .join(', ');
+
+    const insertCols = cols.map(c => this.q(c)).join(', ');
+    const insertVals = cols.map(c => `source.${this.q(c)}`).join(', ');
+
+    let sql;
+    if (this.dialect === 'oracle') {
+      sql =
+        `MERGE INTO ${this.q(this._table)} target ` +
+        `USING ${sourceSql} ` +
+        `ON (${onSql}) ` +
+        `WHEN MATCHED THEN UPDATE SET ${setSql} ` +
+        `WHEN NOT MATCHED THEN INSERT (${insertCols}) VALUES (${insertVals})`;
+    } else {
+      sql =
+        `MERGE INTO ${this.q(this._table)} AS target ` +
+        `USING ${sourceSql} ` +
+        `ON (${onSql}) ` +
+        `WHEN MATCHED THEN UPDATE SET ${setSql} ` +
+        `WHEN NOT MATCHED THEN INSERT (${insertCols}) VALUES (${insertVals})`;
+    }
+
+    const mssqlOutput = this._compileMssqlOutputClause('insert');
+    if (mssqlOutput) sql += mssqlOutput;
+    return sql;
+  }
+
+  _compileMssqlOutputClause(kind = 'insert') {
+    if (this.dialect !== 'mssql' || !this._returning || !this._returning.length) return '';
+    const rowAlias = kind === 'delete' ? 'deleted' : 'inserted';
+    const cols = this._returning.map((c) => {
+      const raw = String(c ?? '').trim();
+      if (raw === '*') return `${rowAlias}.*`;
+      const normalized = stripPrefix(raw, this._table);
+      if (normalized === '*') return `${rowAlias}.*`;
+      const leaf = String(normalized).split('.').pop();
+      return `${rowAlias}.${this.q(leaf)}`;
+    });
+    return ` OUTPUT ${cols.join(', ')}`;
   }
 
   _compileSelectSource(source, params, ctx = 'source') {
@@ -887,14 +982,30 @@ clearAggregates() {
   _compileQuantifiedValue(value, quantifier, params) {
     const q = String(quantifier).toUpperCase() === 'ALL' ? 'ALL' : 'ANY';
     if (Array.isArray(value)) {
-      if (this.dialect !== 'pg') {
-        throw new Error(`${q}(array) is currently supported only on pg; use a subquery/raw source for ${this.dialect}`);
+      if (this.dialect === 'pg') {
+        params.push(value);
+        return `${q} (${this.adapter.placeholder(params.length)})`;
       }
-      params.push(value);
-      return `${q} (${this.adapter.placeholder(params.length)})`;
+      throw new Error(`${q}(array) is compiled inline for ${this.dialect}; expected path from _compileWhereParts`);
     }
     const sourceSql = this._compileSelectSource(value, params, `where${q}`);
     return `${q} (${sourceSql})`;
+  }
+
+  _compileQuantifiedArrayExpr(leftExpr, op, quantifier, values, params) {
+    const q = String(quantifier).toUpperCase() === 'ALL' ? 'ALL' : 'ANY';
+    const list = Array.isArray(values) ? values : [];
+    if (!list.length) {
+      return q === 'ALL' ? '1=1' : '1=0';
+    }
+
+    const joiner = q === 'ALL' ? ' AND ' : ' OR ';
+    const parts = list.map((v) => {
+      const right = this.pushValue(v, params);
+      return `${leftExpr} ${op} ${right}`;
+    });
+    if (parts.length === 1) return parts[0];
+    return `(${parts.join(joiner)})`;
   }
 
   _compileIsValue(value, params) {
@@ -915,9 +1026,10 @@ clearAggregates() {
     if (!this._update) throw new Error('update() requires data');
     const set = Object.entries(this._update).map(([k, v]) => `${this.q(k)} = ${this.pushValue(v, params)}`).join(', ');
     let sql = `UPDATE ${this.q(this._table)} SET ${set}`;
+    sql += this._compileMssqlOutputClause('update');
     sql += this._compileWhere(params);
 
-    if (this._returning && this.adapter.supportsReturning()) {
+    if (this._returning && this.adapter.supportsReturning() && this.dialect !== 'mssql') {
       sql += ` RETURNING ${this._returning.map(c => this.q(c)).join(', ')}`;
     }
 
@@ -926,9 +1038,10 @@ clearAggregates() {
 
   _compileDelete(params) {
     let sql = `DELETE FROM ${this.q(this._table)}`;
+    sql += this._compileMssqlOutputClause('delete');
     sql += this._compileWhere(params);
 
-    if (this._returning && this.adapter.supportsReturning()) {
+    if (this._returning && this.adapter.supportsReturning() && this.dialect !== 'mssql') {
       sql += ` RETURNING ${this._returning.map(c => this.q(c)).join(', ')}`;
     }
 
@@ -967,8 +1080,13 @@ clearAggregates() {
 
       if (w.kind === 'quantified') {
         const left = isRaw(w.column) ? w.column.sql : this.q(w.column);
-        const right = this._compileQuantifiedValue(w.value, w.quantifier, params);
-        parts.push(`${prefix}${left} ${w.op} ${right}`);
+        if (Array.isArray(w.value) && this.dialect !== 'pg') {
+          const expanded = this._compileQuantifiedArrayExpr(left, w.op, w.quantifier, w.value, params);
+          parts.push(`${prefix}${expanded}`);
+        } else {
+          const right = this._compileQuantifiedValue(w.value, w.quantifier, params);
+          parts.push(`${prefix}${left} ${w.op} ${right}`);
+        }
       }
 
       if (w.kind === 'is') {
@@ -1015,10 +1133,22 @@ clearAggregates() {
     const collection = this._table;
 
     if (this._unions.length) {
-      throw new Error('Mongo adapter does not support UNION/UNION ALL');
-    }
-    if (this._insertSelect) {
-      throw new Error('Mongo adapter does not support insertSelect()');
+      if (this._type !== 'select') {
+        throw new Error('Mongo UNION/UNION ALL is only supported for SELECT queries');
+      }
+      const unions = this._unions;
+      const saved = this._unions;
+      this._unions = [];
+      try {
+        return {
+          op: 'union',
+          collection,
+          base: this._compileMongo(),
+          unions: unions.map(u => ({ all: !!u.all, source: compileMongoSource(u.source, 'union') })),
+        };
+      } finally {
+        this._unions = saved;
+      }
     }
 
     const hasJoins = this._joins.length > 0;
@@ -1039,7 +1169,70 @@ clearAggregates() {
 
     // Mutations remain direct operations (no joins/grouping).
     if (this._type === 'insert') {
+      if (this._insertSelect) {
+        const source = this._insertSelect.source;
+        if (!(source instanceof QueryBuilder)) {
+          throw new Error('Mongo insertSelect() supports only QueryBuilder source');
+        }
+        if (source.dialect !== 'mongo') {
+          throw new Error('Mongo insertSelect() requires a mongo source query');
+        }
+        if (source._type !== 'select') {
+          throw new Error('Mongo insertSelect() source must be a SELECT query');
+        }
+
+        const cols = this._insertSelect.columns.map(c => String(c));
+        const sourceCols = source._select.map(c => String(c));
+        if (!sourceCols.length || (sourceCols.length === 1 && sourceCols[0] === '*')) {
+          throw new Error('Mongo insertSelect() requires explicit source select columns');
+        }
+        if (sourceCols.length !== cols.length) {
+          throw new Error('Mongo insertSelect() requires source select columns count to match target columns');
+        }
+
+        return {
+          op: 'insertSelect',
+          collection,
+          source: source._compileMongo(),
+          mappings: cols.map((target, i) => ({
+            target,
+            source: stripPrefix(sourceCols[i], source._table),
+          })),
+        };
+      }
+
       const docs = this._insert ?? [];
+      if (!docs.length) throw new Error('insert() requires data');
+      if (this._onDuplicate) {
+        throw new Error('Mongo adapter does not support onDuplicateKeyUpdate(); use onConflictDoUpdate(...)');
+      }
+      if (this._onConflict) {
+        if (docs.length !== 1) {
+          throw new Error('Mongo onConflictDoUpdate() currently supports a single insert row');
+        }
+        const target = (this._onConflict.target ?? []).map(c => String(c)).filter(Boolean);
+        if (!target.length) throw new Error('onConflictDoUpdate() requires at least one target column');
+
+        const doc = docs[0];
+        const filter = {};
+        for (const col of target) {
+          if (!Object.prototype.hasOwnProperty.call(doc, col)) {
+            throw new Error(`onConflictDoUpdate target column "${col}" is missing from insert data`);
+          }
+          filter[col] = doc[col];
+        }
+
+        const setUpdate = isPlainObject(this._onConflict.update) ? this._onConflict.update : {};
+        const update = { $setOnInsert: doc };
+        if (Object.keys(setUpdate).length) update.$set = setUpdate;
+
+        return {
+          op: 'upsertOne',
+          collection,
+          filter,
+          update,
+        };
+      }
       return { op: docs.length <= 1 ? 'insertOne' : 'insertMany', collection, docs };
     }
     if (this._type === 'update') {
@@ -1060,22 +1253,40 @@ clearAggregates() {
     if (filter && Object.keys(filter).length) pipeline.push({ $match: filter });
 
     // Joins via $lookup
-    for (const j of this._joins) {
+    for (const [i, j] of this._joins.entries()) {
       const joinTable = String(j.table);
-      if (String(j.op || '=') !== '=') {
-        throw new Error(`Mongo join only supports equality for $lookup (got: ${j.op})`);
-      }
       const left = stripPrefix(String(j.left), collection);
       const right = stripPrefix(String(j.right), joinTable);
+      const op = normalizeOp(j.op || '=');
 
-      pipeline.push({
-        $lookup: {
-          from: joinTable,
-          localField: left,
-          foreignField: right,
-          as: joinTable,
-        },
-      });
+      if (op === '=') {
+        pipeline.push({
+          $lookup: {
+            from: joinTable,
+            localField: left,
+            foreignField: right,
+            as: joinTable,
+          },
+        });
+      } else {
+        const leftVar = `__qm_join_left_${i + 1}`;
+        pipeline.push({
+          $lookup: {
+            from: joinTable,
+            let: { [leftVar]: `$${left}` },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    [mongoJoinExprOperator(op)]: [`$$${leftVar}`, `$${right}`],
+                  },
+                },
+              },
+            ],
+            as: joinTable,
+          },
+        });
+      }
 
       // INNER vs LEFT
       const preserve = String(j.type).toLowerCase() !== 'inner';
@@ -1146,7 +1357,8 @@ function condToFilter(w, baseTable) {
     return { [col]: mongoOp(w.op, w.value) };
   }
   if (w.kind === 'quantified') {
-    throw new Error('Mongo adapter does not support SQL ANY/ALL operators');
+    const col = stripPrefix(String(w.column), baseTable);
+    return quantifiedMongoFilter(col, w.op, w.quantifier, w.value);
   }
   if (w.kind === 'is') {
     const col = stripPrefix(String(w.column), baseTable);
@@ -1299,6 +1511,126 @@ function mongoOp(op, value) {
     default:
       throw new Error(`Mongo adapter unsupported operator: ${op}`);
   }
+}
+
+function compileMongoSource(source, ctx = 'source') {
+  if (source instanceof QueryBuilder) {
+    if (source.dialect !== 'mongo') throw new Error(`${ctx} requires a mongo query source`);
+    if (source._type !== 'select') throw new Error(`${ctx} requires a SELECT query source`);
+    return source._compileMongo();
+  }
+  if (isRaw(source) || typeof source === 'string') {
+    throw new Error(`${ctx} supports only QueryBuilder sources for mongo`);
+  }
+  throw new Error(`${ctx} requires QueryBuilder source for mongo`);
+}
+
+function mongoJoinExprOperator(op) {
+  const normalized = normalizeOp(op);
+  switch (normalized) {
+    case '=': return '$eq';
+    case '!=':
+    case '<>': return '$ne';
+    case '>': return '$gt';
+    case '>=': return '$gte';
+    case '<': return '$lt';
+    case '<=': return '$lte';
+    default:
+      throw new Error(`Mongo join does not support operator: ${op}`);
+  }
+}
+
+function quantifiedMongoFilter(column, op, quantifier, value) {
+  if (!Array.isArray(value)) {
+    throw new Error('Mongo ANY/ALL currently supports only literal arrays');
+  }
+  const values = value;
+  const q = String(quantifier).toUpperCase();
+  const normalizedOp = normalizeOp(op);
+
+  if (q !== 'ANY' && q !== 'ALL') {
+    throw new Error(`Unsupported quantifier for mongo: ${quantifier}`);
+  }
+
+  if (values.length === 0) {
+    return q === 'ANY' ? alwaysFalseFilter() : alwaysTrueFilter();
+  }
+
+  if (q === 'ANY') {
+    switch (normalizedOp) {
+      case '=':
+        return { [column]: { $in: values } };
+      case '!=':
+      case '<>':
+        return allSame(values)
+          ? { [column]: { $ne: values[0] } }
+          : alwaysTrueFilter();
+      case '>':
+        return { [column]: { $gt: minValue(values) } };
+      case '>=':
+        return { [column]: { $gte: minValue(values) } };
+      case '<':
+        return { [column]: { $lt: maxValue(values) } };
+      case '<=':
+        return { [column]: { $lte: maxValue(values) } };
+      default:
+        throw new Error(`Mongo ANY does not support operator: ${op}`);
+    }
+  }
+
+  // ALL
+  switch (normalizedOp) {
+    case '=':
+      return allSame(values)
+        ? { [column]: values[0] }
+        : alwaysFalseFilter();
+    case '!=':
+    case '<>':
+      return { [column]: { $nin: values } };
+    case '>':
+      return { [column]: { $gt: maxValue(values) } };
+    case '>=':
+      return { [column]: { $gte: maxValue(values) } };
+    case '<':
+      return { [column]: { $lt: minValue(values) } };
+    case '<=':
+      return { [column]: { $lte: minValue(values) } };
+    default:
+      throw new Error(`Mongo ALL does not support operator: ${op}`);
+  }
+}
+
+function alwaysTrueFilter() {
+  return { $expr: { $eq: [1, 1] } };
+}
+
+function alwaysFalseFilter() {
+  return { $expr: { $eq: [1, 0] } };
+}
+
+function allSame(values) {
+  if (!values.length) return true;
+  const first = values[0];
+  for (let i = 1; i < values.length; i += 1) {
+    if (!Object.is(values[i], first)) return false;
+  }
+  return true;
+}
+
+function minValue(values) {
+  let min = values[0];
+  for (let i = 1; i < values.length; i += 1) {
+    if (values[i] < min) min = values[i];
+  }
+  return min;
+}
+
+function maxValue(values) {
+  let max = values[0];
+  for (let i = 1; i < values.length; i += 1) {
+    if (values[i] > max) max = values[i];
+  }
+  return max;
 }
 
 function parseIsKeyword(value) {

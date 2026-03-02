@@ -108,7 +108,7 @@ export class DB {
    * Switch this DB instance to another dialect+config.
    * Creates a new underlying adapter via SQuery.connect and rebinds this DB.
    *
-   * @param {'pg'|'mysql'|'mssql'|'oracle'|'mongo'|'mongodb'} dialect
+   * @param {'pg'|'mysql'|'mssql'|'oracle'|'mongo'|'mongodb'|'mongoose'} dialect
    * @param {Record<string, any>} config
    * @param {{closeCurrent?: boolean, features?: Record<string, any>, importer?: (name:string)=>Promise<any>|any}} [opts]
    * @returns {Promise<DB>}
@@ -140,7 +140,7 @@ export class DB {
 
   /**
    * Alias of switchDialect(dialect, config, opts).
-   * @param {'pg'|'mysql'|'mssql'|'oracle'|'mongo'|'mongodb'} dialect
+   * @param {'pg'|'mysql'|'mssql'|'oracle'|'mongo'|'mongodb'|'mongoose'} dialect
    * @param {Record<string, any>} config
    * @param {{closeCurrent?: boolean, features?: Record<string, any>, importer?: (name:string)=>Promise<any>|any}} [opts]
    */

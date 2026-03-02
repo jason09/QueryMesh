@@ -10,7 +10,30 @@ QueryMesh is a compact **query builder + light ORM** for Node.js with multi-data
 - **MySQL** (`mysql`)
 - **SQL Server** (`mssql`)
 - **Oracle** (`oracledb`)
-- **MongoDB** (`mongodb`) — same fluent builder, but executed as real MongoDB operations.
+- **MongoDB** (`mongo`, `mongodb`, `mongoose`) — same fluent builder, but executed as real MongoDB operations.
+
+## Cross-dialect support (what is not universal)
+
+| Feature | pg | mysql | mssql | oracle | mongo |
+|---|---|---|---|---|---|
+| Basic query builder (`where`, `NOT`, `IS`, `NULL`, `MIN/MAX`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `UNION` / `UNION ALL` | ✅ | ✅ | ✅ | ✅ | ✅ (QueryBuilder sources) |
+| `INSERT ... SELECT` | ✅ | ✅ | ✅ | ✅ | ✅ (QueryBuilder source + explicit select list) |
+| `ANY/ALL` with subquery/raw source | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `ANY/ALL` with literal array | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `.onConflictDoUpdate(...)` | ✅ | ❌ | ✅ (single-row insert) | ✅ (single-row insert) | ✅ (single-row insert) |
+| `.onDuplicateKeyUpdate(...)` | ❌ | ✅ | ❌ | ❌ | ❌ |
+| `.returning(...)` | ✅ (native) | ❌ | ✅ (native `OUTPUT`) | ❌ | ✅ (best-effort on mutations) |
+| `schema().createView()/dropView()` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Schema DDL (`createTable/alterTable/dropTable`) | ✅ | ✅ | ✅ | ✅ | ⚠️ (`dropTable` only) |
+
+Mongo notes:
+- Mongo joins use `$lookup`; comparison join operators are supported (`=`, `!=`, `<>`, `>`, `>=`, `<`, `<=`).
+- Mongo `UNION/UNION ALL` supports QueryBuilder sources (raw/string SQL sources are not supported).
+- Mongo `insertSelect` supports QueryBuilder source with explicit selected columns.
+- Mongo `schema().dropTable(name)` drops a collection; `createTable/alterTable` remain SQL-only.
+- Right/full join semantics are not fully equivalent to SQL joins in Mongo pipelines.
+- For Mongo schema APIs, use `showTables`, `showDatabases`, and `getDesc` for introspection.
 
 ## Install
 
@@ -42,7 +65,14 @@ const db = await QueryMesh.connect({
 // MySQL
 // const db = await QueryMesh.connect({
 //   dialect: "mysql",
-//   config: { host: "127.0.0.1", user: "root", password: "", database: "app" },
+//   config: {
+//     server: "127.0.0.1", // preferred (alias to host)
+//     user: "root",
+//     password: "",
+//     database: "app",
+//     port: 3306,
+//     options: { connectTimeout: 10000, multipleStatements: true },
+//   },
 // });
 
 // SQL Server
@@ -57,7 +87,22 @@ const db = await QueryMesh.connect({
 // MongoDB
 // const db = await QueryMesh.connect({
 //   dialect: "mongo", // alias: "mongodb"
-//   config: { connectionString: "mongodb://localhost:27017/app" }, // or { uri, dbName }
+//   config: {
+//     // any of these forms work:
+//     connectionString: "mongodb://localhost:27017/app",
+//     // uri: "mongodb://localhost:27017/app",
+//     // or host/server + optional port + db:
+//     // server: "localhost", port: 27017, database: "app",
+//     options: { maxPoolSize: 20, serverSelectionTimeoutMS: 5000 }, // alias of clientOptions
+//   },
+// });
+
+// Mongoose (reuse existing mongoose connection)
+// import mongoose from "mongoose";
+// await mongoose.connect("mongodb://localhost:27017/app");
+// const db = await QueryMesh.connect({
+//   dialect: "mongoose",
+//   config: { mongoose }, // or { connection: mongoose.connection }
 // });
 ```
 
@@ -172,7 +217,7 @@ Aliases:
 - `whereNull()` / `whereNotNull()`
 - `whereIsNull()` / `whereIsNotNull()`
 
-### ANY / ALL (SQL)
+### ANY / ALL
 
 ```js
 // Postgres array example
@@ -188,8 +233,8 @@ await db.table("users")
 ```
 
 Notes:
-- `ANY/ALL` are SQL-only (not MongoDB).
-- `ANY(array)` is currently supported only on PostgreSQL; other dialects should pass a subquery/raw SQL source.
+- SQL dialects: `ANY/ALL` support both subquery/raw sources and literal arrays.
+- MongoDB: `ANY/ALL` supports literal arrays (not subqueries/raw SQL).
 
 ### Joins
 
@@ -212,7 +257,9 @@ await db
   .get();
 ```
 
-MongoDB uses `$lookup` for joins and requires equality.
+MongoDB uses `$lookup`:
+- `=` joins use `localField/foreignField`.
+- `!=`, `<>`, `>`, `>=`, `<`, `<=` joins use `$lookup.pipeline + $expr`.
 
 ### Group by / Having
 
@@ -229,7 +276,7 @@ const stats = await db
   .get();
 ```
 
-### UNION / UNION ALL (SQL)
+### UNION / UNION ALL
 
 ```js
 const q1 = db.table("users").select("id").where("kind", "user");
@@ -240,7 +287,8 @@ const rows = await q1.union(q2).unionAll(q3).get();
 ```
 
 Notes:
-- `UNION` is SQL-only (not MongoDB).
+- SQL dialects compile native `UNION` / `UNION ALL`.
+- MongoDB supports `UNION` / `UNION ALL` with QueryBuilder sources.
 
 ### Insert / Update / Delete
 
@@ -250,7 +298,7 @@ await db.table("users").update({ name: "A" }).where("id", 1).run();
 await db.table("users").delete().where("id", 1).run();
 ```
 
-### INSERT ... SELECT (SQL)
+### INSERT ... SELECT
 
 ```js
 const src = db.table("users_archive")
@@ -262,6 +310,9 @@ await db.table("users")
   .run();
 ```
 
+Mongo note:
+- `insertSelect` on Mongo requires a QueryBuilder source and explicit source select columns (no raw/string SQL source).
+
 ### Upsert
 
 Postgres:
@@ -270,7 +321,26 @@ Postgres:
 await db.table("users")
   .insert({ email: "a@b.com", name: "A" })
   .onConflictDoUpdate("email", { name: "A" })
-  .returning(["id"]) // pg only
+  .returning(["id"])
+  .run();
+```
+
+SQL Server:
+
+```js
+await db.table("users")
+  .insert({ id: 1, email: "a@b.com", name: "A" })
+  .onConflictDoUpdate("email", { name: "A2" }) // compiled as MERGE
+  .returning(["id"])                            // native OUTPUT
+  .run();
+```
+
+Oracle:
+
+```js
+await db.table("users")
+  .insert({ id: 1, email: "a@b.com", name: "A" })
+  .onConflictDoUpdate("email", { name: "A2" }) // compiled as MERGE
   .run();
 ```
 
@@ -282,6 +352,20 @@ await db.table("users")
   .onDuplicateKeyUpdate({ name: "A" })
   .run();
 ```
+
+MongoDB:
+
+```js
+await db.table("users")
+  .insert({ email: "a@b.com", name: "A" })
+  .onConflictDoUpdate("email", { name: "A2" }) // mapped to Mongo upsert
+  .returning(["email", "name"])                // best-effort returned docs
+  .run();
+```
+
+Notes:
+- `onConflictDoUpdate` is native on pg, and mapped through `MERGE` on mssql/oracle.
+- Current mssql/oracle/mongo implementation supports single-row `insert(...)` for `onConflictDoUpdate` (not `insertSelect`).
 
 ## Transactions
 
@@ -309,6 +393,34 @@ const UserModel = db.model(User);
 const u = await UserModel.find(1);
 u.name = "New Name";
 await u.save();
+
+// Create (insert) using static create
+const created = await UserModel.create({
+  email: "new@querymesh.dev",
+  name: "New User",
+});
+
+// Create (insert) using instance save
+const draft = new UserModel({
+  email: "draft@querymesh.dev",
+  name: "Draft User",
+});
+await draft.save();
+```
+
+`ModelClass` vs `ModelClass.query()`:
+- Use model helpers directly on the bound model class: `UserModel.create(...)`, `UserModel.find(id)`, `UserModel.all()`, `instance.save()`.
+- Use `UserModel.query()` when you need QueryBuilder features (joins, select lists, aggregates, offset/limit, custom where groups).
+
+```js
+// custom query from model
+const rows = await UserModel
+  .query()
+  .select(["users.id", "users.email"])
+  .leftJoinOn("departments", "users.id_departments", "departments.id")
+  .offset(0)
+  .limit(50)
+  .get();
 ```
 
 ## Schema builder

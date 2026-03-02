@@ -16,7 +16,7 @@ export class MsSqlAdapter extends BaseAdapter {
     return `@p${index}`;
   }
 
-  supportsReturning() { return false; }
+  supportsReturning() { return true; }
 
   async execute(qb) {
     const { sql, params } = qb.compile();
@@ -24,6 +24,7 @@ export class MsSqlAdapter extends BaseAdapter {
     for (let i = 0; i < params.length; i++) req.input(`p${i + 1}`, params[i]);
     const res = await req.query(sql);
     if (qb._type === 'select') return res.recordset;
+    if (qb._returning) return res.recordset ?? [];
     return { rowsAffected: res.rowsAffected };
   }
 

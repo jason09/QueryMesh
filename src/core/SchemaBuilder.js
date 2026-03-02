@@ -694,6 +694,13 @@ _timestampTriggerSql(table, pkCols) {
     const ifExists = opts.ifExists === true;
     const cascade = opts.cascade === true;
 
+    if (d === 'mongo') {
+      this._sql = null;
+      this._postSql = [];
+      this._meta = { op: 'dropCollection', name: String(name), opts: { ifExists } };
+      return this;
+    }
+
     if (d === 'pg') {
       this._sql = `DROP TABLE${ifExists ? ' IF EXISTS' : ''} ${quoteIdent(d, name)}${cascade ? ' CASCADE' : ''}`;
       return this;
@@ -1530,6 +1537,27 @@ _timestampTriggerSql(table, pkCols) {
    * Execute schema statement.
    */
   async exec() {
+    // Native mongo schema operations that do not map to SQL.
+    if (this._meta?.op === 'dropCollection' && this.dialect === 'mongo') {
+      const collectionName = String(this._meta.name ?? '').trim();
+      if (!collectionName) throw new Error('mongo: dropTable(name) requires a collection name');
+
+      const col = this.adapter?.db?.collection?.(collectionName);
+      if (!col || typeof col.drop !== 'function') {
+        throw new Error('mongo: collection().drop() is not available on this adapter');
+      }
+
+      try {
+        const out = await col.drop();
+        return { dropped: !!out, collection: collectionName };
+      } catch (e) {
+        if (this._meta?.opts?.ifExists === true && isMongoNamespaceNotFoundError(e)) {
+          return { dropped: false, collection: collectionName, skipped: true };
+        }
+        throw e;
+      }
+    }
+
     const hasMain = typeof this._sql === 'string' && this._sql.trim().length > 0;
     const hasPost = Array.isArray(this._postSql) && this._postSql.length > 0;
     if (!hasMain && !hasPost) throw new Error('No schema statement');
@@ -1617,6 +1645,16 @@ function rowsToNames(rows, preferredKey = 'name') {
     if (s) out.push(s);
   }
   return out;
+}
+
+function isMongoNamespaceNotFoundError(err) {
+  if (!err || typeof err !== 'object') return false;
+  const code = Number(err.code);
+  if (code === 26) return true;
+  const codeName = String(err.codeName ?? '');
+  if (codeName === 'NamespaceNotFound') return true;
+  const msg = String(err.message ?? '').toLowerCase();
+  return msg.includes('ns not found') || msg.includes('namespace not found');
 }
 
 function pickRowValue(row, preferredKey) {

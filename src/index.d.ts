@@ -2,7 +2,7 @@
 
 import { EventEmitter } from "node:events";
 
-export type Dialect = "pg" | "mysql" | "mssql" | "oracle" | "mongo" | "mongodb";
+export type Dialect = "pg" | "mysql" | "mssql" | "oracle" | "mongo" | "mongodb" | "mongoose";
 
 export interface ConnectOptions {
   dialect: Dialect;
