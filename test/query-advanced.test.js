@@ -211,6 +211,52 @@ test("Mongo compiles non-equality joins with $lookup pipeline", () => {
   });
 });
 
+test("SQL compiles aliased joins for same table multiple times", () => {
+  const out = new QueryBuilder(fakeAdapter("pg"), "shops")
+    .select(["shops.id", "discount.name", "adminDiscount.name"])
+    .leftJoinOnAs("discounts", "discount", "shops.discountId", "discount.id")
+    .leftJoinOnAs("discounts", "adminDiscount", "shops.adminDiscountId", "adminDiscount.id")
+    .compile();
+
+  assert.equal(
+    out.sql,
+    'SELECT "shops"."id", "discount"."name", "adminDiscount"."name" FROM "shops" LEFT JOIN "discounts" AS "discount" ON "shops"."discountId" = "discount"."id" LEFT JOIN "discounts" AS "adminDiscount" ON "shops"."adminDiscountId" = "adminDiscount"."id"',
+  );
+  assert.deepEqual(out.params, []);
+});
+
+test("Mongo compiles aliased joins with separate output keys", () => {
+  const out = new QueryBuilder(fakeAdapter("mongo"), "shops")
+    .select(["shops._id", "discount.name", "adminDiscount.name"])
+    .leftJoinOnAs("discounts", "discount", "shops.discountId", "discount.id")
+    .leftJoinOnAs("discounts", "adminDiscount", "shops.adminDiscountId", "adminDiscount.id")
+    .compile();
+
+  assert.equal(out.mongo.op, "aggregate");
+  assert.deepEqual(out.mongo.pipeline[0], {
+    $lookup: {
+      from: "discounts",
+      localField: "discountId",
+      foreignField: "id",
+      as: "discount",
+    },
+  });
+  assert.deepEqual(out.mongo.pipeline[1], {
+    $unwind: { path: "$discount", preserveNullAndEmptyArrays: true },
+  });
+  assert.deepEqual(out.mongo.pipeline[2], {
+    $lookup: {
+      from: "discounts",
+      localField: "adminDiscountId",
+      foreignField: "id",
+      as: "adminDiscount",
+    },
+  });
+  assert.deepEqual(out.mongo.pipeline[3], {
+    $unwind: { path: "$adminDiscount", preserveNullAndEmptyArrays: true },
+  });
+});
+
 test("Mongo compiles onConflictDoUpdate insert as upsert", () => {
   const out = new QueryBuilder(fakeAdapter("mongo"), "users")
     .insert({ email: "a@b.com", name: "A" })

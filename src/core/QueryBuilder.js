@@ -204,14 +204,20 @@ clearAggregates() {
    * @param {string} right
    */
   join(type, table, left, opOrRight, maybeRight) {
-    // Backward compatible:
-    // - join(type, table, left, op, right)
-    // - join(type, table, left, right)   // defaults op to "="
-    const op = assertOp((maybeRight === undefined) ? '=' : opOrRight, JOIN_OPS, 'join');
-    const right = (maybeRight === undefined) ? opOrRight : maybeRight;
+    return this._pushJoin(type, table, null, left, opOrRight, maybeRight);
+  }
 
-    this._joins.push({ type, table, left, op, right });
-    return this;
+  /**
+   * Add a join with explicit table alias.
+   * @param {'inner'|'left'|'right'|'full'} type
+   * @param {string} table
+   * @param {string} alias
+   * @param {string} left
+   * @param {string} op
+   * @param {string} right
+   */
+  joinAs(type, table, alias, left, opOrRight, maybeRight) {
+    return this._pushJoin(type, table, alias, left, opOrRight, maybeRight);
   }
 
   /**
@@ -219,6 +225,14 @@ clearAggregates() {
    * Equivalent to join(type, table, left, '=', right).
    */
   joinOn(type, table, left, right) { return this.join(type, table, left, '=', right); }
+
+  /**
+   * Equality JOIN with explicit alias.
+   * Equivalent to joinAs(type, table, alias, left, '=', right).
+   */
+  joinOnAs(type, table, alias, left, right) {
+    return this.joinAs(type, table, alias, left, '=', right);
+  }
 
 
   /**
@@ -247,6 +261,33 @@ clearAggregates() {
   }
 
   /**
+   * INNER JOIN helper with explicit alias.
+   */
+  innerJoinAs(table, alias, left, opOrRight, maybeRight) {
+    return (maybeRight === undefined)
+      ? this.joinAs('inner', table, alias, left, opOrRight)
+      : this.joinAs('inner', table, alias, left, opOrRight, maybeRight);
+  }
+
+  /**
+   * LEFT JOIN helper with explicit alias.
+   */
+  leftJoinAs(table, alias, left, opOrRight, maybeRight) {
+    return (maybeRight === undefined)
+      ? this.joinAs('left', table, alias, left, opOrRight)
+      : this.joinAs('left', table, alias, left, opOrRight, maybeRight);
+  }
+
+  /**
+   * RIGHT JOIN helper with explicit alias.
+   */
+  rightJoinAs(table, alias, left, opOrRight, maybeRight) {
+    return (maybeRight === undefined)
+      ? this.joinAs('right', table, alias, left, opOrRight)
+      : this.joinAs('right', table, alias, left, opOrRight, maybeRight);
+  }
+
+  /**
    * INNER JOIN equality helper.
    */
   innerJoinOn(table, left, right) { return this.joinOn('inner', table, left, right); }
@@ -260,6 +301,34 @@ clearAggregates() {
    * RIGHT JOIN equality helper.
    */
   rightJoinOn(table, left, right) { return this.joinOn('right', table, left, right); }
+
+  /**
+   * INNER JOIN equality helper with alias.
+   */
+  innerJoinOnAs(table, alias, left, right) { return this.joinOnAs('inner', table, alias, left, right); }
+
+  /**
+   * LEFT JOIN equality helper with alias.
+   */
+  leftJoinOnAs(table, alias, left, right) { return this.joinOnAs('left', table, alias, left, right); }
+
+  /**
+   * RIGHT JOIN equality helper with alias.
+   */
+  rightJoinOnAs(table, alias, left, right) { return this.joinOnAs('right', table, alias, left, right); }
+
+  _pushJoin(type, table, alias, left, opOrRight, maybeRight) {
+    // Backward compatible:
+    // - join(type, table, left, op, right)
+    // - join(type, table, left, right)   // defaults op to "="
+    const op = assertOp((maybeRight === undefined) ? '=' : opOrRight, JOIN_OPS, 'join');
+    const right = (maybeRight === undefined) ? opOrRight : maybeRight;
+    const as = alias == null ? null : String(alias).trim();
+    if (alias != null && !as) throw new Error('join alias must not be empty');
+
+    this._joins.push({ type, table, left, op, right, as: as || null });
+    return this;
+  }
 
 
   /**
@@ -754,7 +823,7 @@ clearAggregates() {
     let sql = `SELECT ${distinct}${cols} FROM ${this.q(this._table)}`;
 
     for (const j of this._joins) {
-      sql += ` ${j.type.toUpperCase()} JOIN ${this.q(j.table)} ON ${this.q(j.left)} ${j.op} ${this.q(j.right)}`;
+      sql += ` ${j.type.toUpperCase()} JOIN ${this._compileSqlTableRef(j.table, j.as)} ON ${this.q(j.left)} ${j.op} ${this.q(j.right)}`;
     }
 
     sql += this._compileWhere(params);
@@ -799,6 +868,14 @@ clearAggregates() {
     if (offset != null) sql += ` OFFSET ${offset}`;
 
     return sql;
+  }
+
+  _compileSqlTableRef(table, alias = null) {
+    const base = this.q(table);
+    if (!alias) return base;
+    const as = this.q(alias);
+    if (this.dialect === 'oracle') return `${base} ${as}`;
+    return `${base} AS ${as}`;
   }
 
   _compileSelect(params) {
@@ -1255,8 +1332,9 @@ clearAggregates() {
     // Joins via $lookup
     for (const [i, j] of this._joins.entries()) {
       const joinTable = String(j.table);
+      const joinAlias = String(j.as || joinTable);
       const left = stripPrefix(String(j.left), collection);
-      const right = stripPrefix(String(j.right), joinTable);
+      const right = stripJoinPrefix(String(j.right), joinTable, joinAlias);
       const op = normalizeOp(j.op || '=');
 
       if (op === '=') {
@@ -1265,7 +1343,7 @@ clearAggregates() {
             from: joinTable,
             localField: left,
             foreignField: right,
-            as: joinTable,
+            as: joinAlias,
           },
         });
       } else {
@@ -1283,14 +1361,14 @@ clearAggregates() {
                 },
               },
             ],
-            as: joinTable,
+            as: joinAlias,
           },
         });
       }
 
       // INNER vs LEFT
       const preserve = String(j.type).toLowerCase() !== 'inner';
-      pipeline.push({ $unwind: { path: `$${joinTable}`, preserveNullAndEmptyArrays: preserve } });
+      pipeline.push({ $unwind: { path: `$${joinAlias}`, preserveNullAndEmptyArrays: preserve } });
     }
 
     // Grouping / aggregates
@@ -1341,6 +1419,15 @@ function stripPrefix(path, table) {
   const s = String(path);
   const prefix = String(table) + '.';
   return s.startsWith(prefix) ? s.slice(prefix.length) : s;
+}
+
+function stripJoinPrefix(path, table, alias) {
+  const s = String(path);
+  const tablePrefix = String(table) + '.';
+  if (s.startsWith(tablePrefix)) return s.slice(tablePrefix.length);
+  const aliasPrefix = String(alias) + '.';
+  if (s.startsWith(aliasPrefix)) return s.slice(aliasPrefix.length);
+  return s;
 }
 
 function condToFilter(w, baseTable) {

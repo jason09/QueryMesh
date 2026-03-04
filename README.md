@@ -25,6 +25,7 @@ QueryMesh is a compact **query builder + light ORM** for Node.js with multi-data
 | `.onDuplicateKeyUpdate(...)` | ❌ | ✅ | ❌ | ❌ | ❌ |
 | `.returning(...)` | ✅ (native) | ❌ | ✅ (native `OUTPUT`) | ❌ | ✅ (best-effort on mutations) |
 | `schema().createView()/dropView()` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Triggers (`createTrigger/dropTrigger`) | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Schema DDL (`createTable/alterTable/dropTable`) | ✅ | ✅ | ✅ | ✅ | ⚠️ (`dropTable` only) |
 
 Mongo notes:
@@ -32,6 +33,7 @@ Mongo notes:
 - Mongo `UNION/UNION ALL` supports QueryBuilder sources (raw/string SQL sources are not supported).
 - Mongo `insertSelect` supports QueryBuilder source with explicit selected columns.
 - Mongo `schema().dropTable(name)` drops a collection; `createTable/alterTable` remain SQL-only.
+- Mongo triggers are not supported by QueryMesh (`createTrigger/dropTrigger` are SQL dialect features).
 - Right/full join semantics are not fully equivalent to SQL joins in Mongo pipelines.
 - For Mongo schema APIs, use `showTables`, `showDatabases`, and `getDesc` for introspection.
 
@@ -257,9 +259,66 @@ await db
   .get();
 ```
 
+Aliased joins are supported (useful when joining the same table multiple times):
+
+```js
+await db
+  .table("shops")
+  .leftJoinOnAs("discounts", "discount", "shops.discountId", "discount.id")
+  .leftJoinOnAs("discounts", "adminDiscount", "shops.adminDiscountId", "adminDiscount.id")
+  .select(["shops.id", "discount.name", "adminDiscount.name"])
+  .get();
+```
+
+`join...As` quick reference:
+- `joinAs(type, table, alias, left, opOrRight, right?)`
+- `joinOnAs(type, table, alias, left, right)` (equality shortcut)
+- `innerJoinAs / leftJoinAs / rightJoinAs`
+- `innerJoinOnAs / leftJoinOnAs / rightJoinOnAs`
+
+Rules:
+- `alias` must be non-empty.
+- When you use an alias, reference that alias in selected fields and join conditions (`discount.id`, not `discounts.id`).
+- Use this pattern when the same table/collection is joined more than once.
+
+SQL compile example for aliased joins:
+
+```sql
+SELECT "shops"."id", "discount"."name", "adminDiscount"."name"
+FROM "shops"
+LEFT JOIN "discounts" AS "discount"
+  ON "shops"."discountId" = "discount"."id"
+LEFT JOIN "discounts" AS "adminDiscount"
+  ON "shops"."adminDiscountId" = "adminDiscount"."id"
+```
+
 MongoDB uses `$lookup`:
 - `=` joins use `localField/foreignField`.
 - `!=`, `<>`, `>`, `>=`, `<`, `<=` joins use `$lookup.pipeline + $expr`.
+- Alias joins map to `$lookup.as`, so multiple joins to the same collection can use distinct output keys.
+
+Mongo compile example for aliased joins:
+
+```js
+[
+  { $lookup: { from: "discounts", localField: "discountId", foreignField: "id", as: "discount" } },
+  { $unwind: { path: "$discount", preserveNullAndEmptyArrays: true } },
+  { $lookup: { from: "discounts", localField: "adminDiscountId", foreignField: "id", as: "adminDiscount" } },
+  { $unwind: { path: "$adminDiscount", preserveNullAndEmptyArrays: true } }
+]
+```
+
+Output shape example (Mongo):
+
+```json
+[
+  {
+    "id": 1,
+    "discount": { "name": "Summer 10%" },
+    "adminDiscount": { "name": "Staff 20%" }
+  }
+]
+```
 
 ### Group by / Having
 
@@ -377,6 +436,13 @@ await db.transaction(async (trx) => {
 ```
 
 MongoDB uses sessions when available.
+
+MongoDB transaction notes:
+- QueryMesh needs a MongoClient-backed DB handle with `startSession()` (official `mongodb` driver client, or Mongoose connection exposing the underlying client).
+- Multi-document transactions require:
+  - replica set (MongoDB 4.0+), or
+  - sharded cluster (MongoDB 4.2+).
+- Standalone MongoDB deployments generally do not support multi-document transactions.
 
 ## Model layer
 
@@ -593,6 +659,10 @@ await db.schema().createTrigger({
 await db.schema().dropTrigger("trg_users_touch", { table: "users", ifExists: true }).exec();
 ```
 
+Notes:
+- Supported on `pg`, `mysql`, `mssql`, and `oracle`.
+- Not supported on MongoDB in QueryMesh.
+
 ## Import/Export (backup)
 
 QueryMesh wraps native CLI tools and provides progress events.
@@ -687,7 +757,7 @@ const db = await QueryMesh.connect({
 - Filtering: `where`, `orWhere`, `whereGroup`, `orWhereGroup`, `whereNot`, `orWhereNot`
 - Predicates: `whereIn`, `whereNotIn`, `whereBetween`, `whereNotBetween`, `whereNull`, `whereNotNull`, `whereIs`, `whereIsNot`
 - Quantified: `whereAny`, `whereAll`, `orWhereAny`, `orWhereAll`
-- Join/shape: `join`, `joinOn`, `innerJoin`, `leftJoin`, `rightJoin`
+- Join/shape: `join`, `joinAs`, `joinOn`, `joinOnAs`, `innerJoin`, `leftJoin`, `rightJoin`, `innerJoinAs`, `leftJoinAs`, `rightJoinAs`, `innerJoinOnAs`, `leftJoinOnAs`, `rightJoinOnAs`
 - Set operations: `union`, `unionAll`, `clearUnions`
 - Mutation: `insert`, `insertSelect`, `update`, `delete`
 - Upsert: `onConflictDoUpdate`, `onDuplicateKeyUpdate`
