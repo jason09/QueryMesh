@@ -1,4 +1,5 @@
 import { BaseAdapter } from './BaseAdapter.js';
+import { makeRawQueryResult, normalizeRawParams, prepareRawSql } from '../utils/rawSql.js';
 
 /**
  * SQL Server adapter using `mssql`.
@@ -29,17 +30,23 @@ export class MsSqlAdapter extends BaseAdapter {
   }
 
   async query(sql, params = []) {
+    const prepared = prepareRawSql(this.dialect, sql, params);
     const req = this.pool.request();
-    bindParams(req, params);
-    const res = await req.query(String(sql));
-    return res.recordset ?? [];
+    bindParams(req, prepared.params);
+    const res = await req.query(prepared.sql);
+    const rows = res.recordset ?? [];
+    return makeRawQueryResult(rows, {
+      rowCount: res.rowsAffected,
+      rowsAffected: res.rowsAffected ?? [],
+      recordset: rows,
+      raw: res,
+    });
   }
 
   async exec(sql, params = []) {
-    const req = this.pool.request();
-    bindParams(req, params);
-    const res = await req.query(String(sql));
-    return { rowsAffected: res.rowsAffected ?? [], recordset: res.recordset ?? [] };
+    void sql;
+    void params;
+    throw new Error('mssql: raw SQL exec is not supported; use query(sql, params)');
   }
 
   _serverName() {
@@ -213,6 +220,6 @@ function normalizeList(v) {
 }
 
 function bindParams(req, params) {
-  const list = params == null ? [] : (Array.isArray(params) ? params : [params]);
+  const list = normalizeRawParams(params);
   for (let i = 0; i < list.length; i++) req.input(`p${i + 1}`, list[i]);
 }

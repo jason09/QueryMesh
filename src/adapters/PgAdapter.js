@@ -1,4 +1,5 @@
 import { BaseAdapter } from './BaseAdapter.js';
+import { makeRawQueryResult, prepareRawSql } from '../utils/rawSql.js';
 
 /**
  * PostgreSQL adapter using `pg`.
@@ -23,13 +24,18 @@ export class PgAdapter extends BaseAdapter {
   }
 
   async query(sql, params = []) {
-    const res = await this.pool.query(String(sql), normalizeParams(params));
-    return res.rows ?? [];
+    const prepared = prepareRawSql(this.dialect, sql, params);
+    const res = await this.pool.query(prepared.sql, prepared.params);
+    return makeRawQueryResult(res.rows ?? [], {
+      rowCount: res.rowCount,
+      raw: res,
+    });
   }
 
   async exec(sql, params = []) {
-    const res = await this.pool.query(String(sql), normalizeParams(params));
-    return { rowCount: res.rowCount, rows: res.rows ?? [] };
+    void sql;
+    void params;
+    throw new Error('pg: raw SQL exec is not supported; use query(sql, params)');
   }
 
   /**
@@ -227,9 +233,4 @@ export class PgAdapter extends BaseAdapter {
 function normalizeList(v) {
   if (!v) return [];
   return Array.isArray(v) ? v.map(String) : [String(v)];
-}
-
-function normalizeParams(params) {
-  if (params == null) return [];
-  return Array.isArray(params) ? params : [params];
 }

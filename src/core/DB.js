@@ -49,7 +49,8 @@ export class DB {
   }
 
   /**
-   * Execute raw SQL and return rows. SQL dialects only.
+   * Execute raw SQL and return a rows array with .rows and .rowCount metadata.
+   * SQL dialects only.
    * @param {string} sql
    * @param {any[]} [params]
    */
@@ -58,12 +59,15 @@ export class DB {
   }
 
   /**
-   * Execute raw SQL command and return driver metadata. SQL dialects only.
+   * db.exec() no longer executes raw SQL. Use db.query(sql, params) for
+   * SELECT, INSERT, UPDATE, DELETE, and DDL statements.
    * @param {string} sql
    * @param {any[]} [params]
    */
   async exec(sql, params = []) {
-    return this.adapter.exec(sql, params);
+    void sql;
+    void params;
+    throw new Error('db.exec() no longer executes raw SQL. Use db.query(sql, params) instead.');
   }
 
   /**

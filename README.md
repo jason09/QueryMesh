@@ -235,31 +235,37 @@ Notes:
 - Keep user input as normal values (`where("email", value)`) so QueryMesh can bind it safely.
 - `raw(...)` is for SQL dialects; it is not a Mongo query expression helper.
 
-### Full SQL query / exec
+### Full SQL query
 
-Use `db.query(...)` when you want to run full SQL and return rows. Use `db.exec(...)` for SQL commands/mutations when you want driver metadata.
+Use `db.query(...)` when you want to run a full SQL statement directly. It supports `SELECT`, `INSERT`, `UPDATE`, `DELETE`, and DDL statements for SQL dialects.
 
 ```js
-// PostgreSQL placeholders use $1, $2, ...
-const rows = await db.query(
-  "SELECT id, email FROM users WHERE id = $1",
+// Portable placeholders use ? and QueryMesh rewrites them for the current dialect.
+const result = await db.query(
+  "SELECT id, email FROM users WHERE id = ?",
   [userId]
 );
 
-const result = await db.exec(
-  "UPDATE users SET active = false WHERE id = $1",
-  [userId]
+console.log(result.rows);     // [{ id, email }]
+console.log(result.rowCount); // number of rows
+
+const updateResult = await db.query(
+  "UPDATE users SET active = ? WHERE id = ?",
+  [false, userId]
 );
+
+console.log(updateResult.rowCount);
 ```
 
-Placeholder style is dialect-specific:
-- PostgreSQL: `$1`, `$2`
-- MySQL: `?`
-- SQL Server: `@p1`, `@p2`
-- Oracle: `:p1`, `:p2`
+Placeholder support:
+- Recommended portable style: `?`
+- QueryMesh rewrites `?` to the connected dialect (`$1`, `?`, `@p1`, or `:p1`).
+- Native placeholder styles are also accepted and normalized: `$1`, `@p1`, `:p1`.
 
 Notes:
-- `db.query(...)` and `db.exec(...)` are SQL-only.
+- `db.query(...)` returns a rows array that also exposes `.rows` and `.rowCount`.
+- `db.exec(...)` no longer executes raw SQL. Use `db.query(...)` for raw SQL commands.
+- `schema().exec()` still exists for schema-builder statements.
 - MongoDB rejects raw SQL; use the QueryMesh builder or native Mongo collection APIs.
 
 ### `raw(...)` vs `db.query(...)`
@@ -270,8 +276,8 @@ Use `raw(...)` inside a QueryMesh builder. Use `db.query(...)` when you want to 
 |---|---|---|
 | SQL expression inside a builder | `raw(...)` | `.where(raw("LOWER(email)"), value)` |
 | SQL value/function inside mutation data | `raw(...)` | `.update({ updated_at: raw("CURRENT_TIMESTAMP") })` |
-| Full SELECT written manually | `db.query(...)` | `db.query("SELECT * FROM users WHERE id = $1", [id])` |
-| Full UPDATE/DELETE/DDL written manually | `db.exec(...)` | `db.exec("UPDATE users SET active = false WHERE id = $1", [id])` |
+| Full SELECT written manually | `db.query(...)` | `db.query("SELECT * FROM users WHERE id = ?", [id])` |
+| Full UPDATE/DELETE/DDL written manually | `db.query(...)` | `db.query("UPDATE users SET active = ? WHERE id = ?", [false, id])` |
 
 ```js
 // raw(...) is a fragment inside the builder
@@ -281,10 +287,12 @@ await db
   .get();
 
 // query(...) executes the whole SQL statement
-await db.query(
-  "SELECT * FROM users WHERE LOWER(email) = $1",
+const result = await db.query(
+  "SELECT * FROM users WHERE LOWER(email) = ?",
   [email.toLowerCase()]
 );
+
+console.log(result.rows);
 ```
 
 ### Grouped WHERE (explicit parentheses)
@@ -886,7 +894,6 @@ const db = await QueryMesh.connect({
 
 - `table(name)`
 - `query(sql, params?)`
-- `exec(sql, params?)`
 - `schema()`
 - `backup()`
 - `tools()`

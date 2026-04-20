@@ -1,5 +1,6 @@
 import { BaseAdapter } from './BaseAdapter.js';
 import path from 'path';
+import { makeRawQueryResult, normalizeRawParams, prepareRawSql } from '../utils/rawSql.js';
 
 /**
  * Oracle adapter using `oracledb`.
@@ -39,23 +40,25 @@ export class OracleAdapter extends BaseAdapter {
   }
 
   async query(sql, params = []) {
+    const prepared = prepareRawSql(this.dialect, sql, params);
     const conn = await this.pool.getConnection();
     try {
-      const res = await conn.execute(String(sql), bindParams(params), { autoCommit: false });
-      return res.rows ?? [];
+      const res = await conn.execute(prepared.sql, bindParams(prepared.params), { autoCommit: true });
+      const rows = res.rows ?? [];
+      return makeRawQueryResult(rows, {
+        rowCount: rows.length ? rows.length : res.rowsAffected,
+        rowsAffected: res.rowsAffected,
+        raw: res,
+      });
     } finally {
       try { await conn.close(); } catch {}
     }
   }
 
   async exec(sql, params = []) {
-    const conn = await this.pool.getConnection();
-    try {
-      const res = await conn.execute(String(sql), bindParams(params), { autoCommit: true });
-      return { rowsAffected: res.rowsAffected, rows: res.rows ?? [] };
-    } finally {
-      try { await conn.close(); } catch {}
-    }
+    void sql;
+    void params;
+    throw new Error('oracle: raw SQL exec is not supported; use query(sql, params)');
   }
 
   _oracleAuth() {
@@ -194,7 +197,7 @@ function normalizeList(v) {
 }
 
 function bindParams(params) {
-  const list = params == null ? [] : (Array.isArray(params) ? params : [params]);
+  const list = normalizeRawParams(params);
   const binds = {};
   for (let i = 0; i < list.length; i++) binds[`p${i + 1}`] = list[i];
   return binds;

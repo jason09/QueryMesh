@@ -1,5 +1,6 @@
 import { BaseAdapter } from './BaseAdapter.js';
 import { promisify } from 'util';
+import { makeRawQueryResult, prepareRawSql } from '../utils/rawSql.js';
 
 /**
  * MySQL adapter using `mysql`.
@@ -25,11 +26,22 @@ export class MySqlAdapter extends BaseAdapter {
   }
 
   async query(sql, params = []) {
-    return await this.queryAsync(String(sql), normalizeParams(params));
+    const prepared = prepareRawSql(this.dialect, sql, params);
+    const res = await this.queryAsync(prepared.sql, prepared.params);
+    const rows = Array.isArray(res) ? res : [];
+    return makeRawQueryResult(rows, {
+      rowCount: Array.isArray(res) ? rows.length : res?.affectedRows,
+      affectedRows: res?.affectedRows,
+      changedRows: res?.changedRows,
+      insertId: res?.insertId,
+      raw: res,
+    });
   }
 
   async exec(sql, params = []) {
-    return await this.queryAsync(String(sql), normalizeParams(params));
+    void sql;
+    void params;
+    throw new Error('mysql: raw SQL exec is not supported; use query(sql, params)');
   }
 
   _mysqlEnv() {
@@ -170,9 +182,4 @@ export class MySqlAdapter extends BaseAdapter {
 function normalizeList(v) {
   if (!v) return [];
   return Array.isArray(v) ? v.map(String) : [String(v)];
-}
-
-function normalizeParams(params) {
-  if (params == null) return [];
-  return Array.isArray(params) ? params : [params];
 }

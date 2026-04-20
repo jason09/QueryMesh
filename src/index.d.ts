@@ -131,6 +131,17 @@ export class Identifier {
   constructor(name: string);
 }
 
+export interface RawQueryResult<T = any> extends Array<T> {
+  rows: T[];
+  rowCount: number;
+  affectedRows?: number;
+  changedRows?: number;
+  insertId?: any;
+  rowsAffected?: number[];
+  recordset?: T[];
+  raw?: any;
+}
+
 export class QueryBuilder {
   where(fn: (q: QueryBuilder) => any): this;
   select(cols?: string[] | string): this;
@@ -307,8 +318,9 @@ export class DB {
   raw(sql: string, params?: any[]): Raw;
   id(name: string): Identifier;
   quote(name: string): string;
-  query(sql: string, params?: any[]): Promise<any[]>;
-  exec(sql: string, params?: any[]): Promise<any>;
+  query<T = any>(sql: string, params?: any[]): Promise<RawQueryResult<T>>;
+  /** @deprecated Raw SQL exec is disabled. Use query(sql, params) instead. */
+  exec(sql: string, params?: any[]): Promise<never>;
   schema(): any;
   backup(): BackupManager;
   tools(): ToolsManager;

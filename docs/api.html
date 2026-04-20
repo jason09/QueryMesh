@@ -447,7 +447,7 @@ const db = await QueryMesh.connect({
               <p class="signature"><code>raw(sql: string, params?: any[]): Raw</code></p>
               <p>Creates a raw SQL fragment or raw source for places where QueryMesh accepts raw expressions. Use it when the fragment should be inserted into generated SQL instead of quoted as an identifier or bound as a plain value.</p>
               <p>Use <code>raw(...)</code> sparingly and only with trusted SQL fragments. Keep user input as normal QueryMesh values whenever possible.</p>
-              <p>For full manual SQL execution, use <code>db.query(...)</code> or <code>db.exec(...)</code> instead of <code>raw(...)</code>.</p>
+              <p>For full manual SQL execution, use <code>db.query(...)</code> instead of <code>raw(...)</code>.</p>
               <p>Rule of thumb: <code>raw(...)</code> is part of a generated QueryMesh query; <code>db.query(...)</code> is the whole SQL query.</p>
             </div>
             <div class="code-card">
@@ -538,13 +538,8 @@ const id = toObjectIdSync(payload.userId, ObjectId);</code></pre>
               </tr>
               <tr>
                 <td><code>query(sql, params?)</code></td>
-                <td>Executes full raw SQL and returns rows. SQL dialects only.</td>
-                <td><code>await db.query("SELECT * FROM users WHERE id = $1", [id])</code></td>
-              </tr>
-              <tr>
-                <td><code>exec(sql, params?)</code></td>
-                <td>Executes full raw SQL command and returns driver metadata. SQL dialects only.</td>
-                <td><code>await db.exec("UPDATE users SET active = false WHERE id = $1", [id])</code></td>
+                <td>Executes full raw SQL and returns a rows array with <code>.rows</code> and <code>.rowCount</code>. SQL dialects only. Portable <code>?</code> placeholders are rewritten for the current dialect.</td>
+                <td><code>await db.query("SELECT * FROM users WHERE id = ?", [id])</code></td>
               </tr>
               <tr>
                 <td><code>raw(sql, params?)</code></td>

@@ -37,7 +37,8 @@ export class BaseAdapter {
   }
 
   /**
-   * Execute raw SQL and return rows. SQL adapters override this.
+   * Execute raw SQL and return a rows array with .rows and .rowCount metadata.
+   * SQL adapters override this.
    * @param {string} _sql
    * @param {any[]} [_params]
    */
@@ -46,12 +47,13 @@ export class BaseAdapter {
   }
 
   /**
-   * Execute raw SQL command and return driver metadata. SQL adapters override this.
+   * Raw SQL exec is intentionally not part of the public DB API.
+   * Use DB.query(sql, params) for raw SQL statements.
    * @param {string} _sql
    * @param {any[]} [_params]
    */
   async exec(_sql, _params = []) {
-    throw new Error(`${this.dialect}: raw SQL exec is not supported`);
+    throw new Error(`${this.dialect}: raw SQL exec is not supported; use query(sql, params)`);
   }
 
   /**

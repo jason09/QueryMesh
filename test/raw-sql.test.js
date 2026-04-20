@@ -7,7 +7,7 @@ import { MsSqlAdapter } from "../src/adapters/MsSqlAdapter.js";
 import { OracleAdapter } from "../src/adapters/OracleAdapter.js";
 import { MongoAdapter } from "../src/adapters/MongoAdapter.js";
 
-test("DB.query and DB.exec execute raw SQL on PostgreSQL", async () => {
+test("DB.query executes raw SQL on PostgreSQL and exposes rows/rowCount", async () => {
   const calls = [];
   const adapter = new PgAdapter({
     async query(sql, params) {
@@ -18,36 +18,68 @@ test("DB.query and DB.exec execute raw SQL on PostgreSQL", async () => {
   });
   const db = new DB(adapter);
 
-  const rows = await db.query("SELECT * FROM users WHERE id = $1", [1]);
-  const result = await db.exec("UPDATE users SET active = false WHERE id = $1", [1]);
+  const rows = await db.query("SELECT * FROM users WHERE id = ?", [1]);
+  const result = await db.query("UPDATE users SET active = ? WHERE id = ?", [false, 1]);
 
   assert.deepEqual(rows, [{ id: 1 }]);
-  assert.deepEqual(result, { rowCount: 2, rows: [] });
+  assert.equal(rows.rows, rows);
+  assert.equal(rows.rowCount, 1);
+  assert.deepEqual(result, []);
+  assert.equal(result.rows, result);
+  assert.equal(result.rowCount, 2);
   assert.deepEqual(calls, [
     { sql: "SELECT * FROM users WHERE id = $1", params: [1] },
-    { sql: "UPDATE users SET active = false WHERE id = $1", params: [1] },
+    { sql: "UPDATE users SET active = $1 WHERE id = $2", params: [false, 1] },
   ]);
 });
 
-test("DB.query and DB.exec execute raw SQL on MySQL", async () => {
+test("DB.query rewrites native placeholders and skips quoted question marks", async () => {
   const calls = [];
-  const adapter = new MySqlAdapter({
-    query(sql, params, cb) {
+  const adapter = new PgAdapter({
+    async query(sql, params) {
       calls.push({ sql, params });
-      cb(null, String(sql).startsWith("SELECT") ? [{ id: 2 }] : { affectedRows: 1 });
+      return { rows: [{ ok: true }], rowCount: 1 };
     },
   });
   const db = new DB(adapter);
 
-  assert.deepEqual(await db.query("SELECT * FROM users WHERE id = ?", [2]), [{ id: 2 }]);
-  assert.deepEqual(await db.exec("UPDATE users SET active = ? WHERE id = ?", [false, 2]), { affectedRows: 1 });
+  await db.query("SELECT '?' AS marker, * FROM users WHERE id = @p1 AND email = :p2", [7, "a@b.com"]);
+
+  assert.deepEqual(calls, [
+    {
+      sql: "SELECT '?' AS marker, * FROM users WHERE id = $1 AND email = $2",
+      params: [7, "a@b.com"],
+    },
+  ]);
+});
+
+test("DB.query executes raw SQL on MySQL with pg-style placeholders", async () => {
+  const calls = [];
+  const adapter = new MySqlAdapter({
+    query(sql, params, cb) {
+      calls.push({ sql, params });
+      cb(null, String(sql).startsWith("SELECT") ? [{ id: 2 }] : { affectedRows: 1, insertId: 10 });
+    },
+  });
+  const db = new DB(adapter);
+
+  const rows = await db.query("SELECT * FROM users WHERE id = $1", [2]);
+  const result = await db.query("UPDATE users SET active = $1 WHERE id = $2", [false, 2]);
+
+  assert.deepEqual(rows, [{ id: 2 }]);
+  assert.equal(rows.rows, rows);
+  assert.equal(rows.rowCount, 1);
+  assert.deepEqual(result, []);
+  assert.equal(result.rowCount, 1);
+  assert.equal(result.affectedRows, 1);
+  assert.equal(result.insertId, 10);
   assert.deepEqual(calls, [
     { sql: "SELECT * FROM users WHERE id = ?", params: [2] },
     { sql: "UPDATE users SET active = ? WHERE id = ?", params: [false, 2] },
   ]);
 });
 
-test("DB.query and DB.exec execute raw SQL on SQL Server", async () => {
+test("DB.query executes raw SQL on SQL Server with portable placeholders", async () => {
   const calls = [];
   const adapter = new MsSqlAdapter({
     request() {
@@ -66,11 +98,15 @@ test("DB.query and DB.exec execute raw SQL on SQL Server", async () => {
   });
   const db = new DB(adapter);
 
-  assert.deepEqual(await db.query("SELECT * FROM users WHERE id = @p1", [3]), [{ id: 3 }]);
-  assert.deepEqual(
-    await db.exec("UPDATE users SET active = @p1 WHERE id = @p2", [false, 3]),
-    { rowsAffected: [4], recordset: [] },
-  );
+  const rows = await db.query("SELECT * FROM users WHERE id = ?", [3]);
+  const result = await db.query("UPDATE users SET active = ? WHERE id = ?", [false, 3]);
+
+  assert.deepEqual(rows, [{ id: 3 }]);
+  assert.equal(rows.rows, rows);
+  assert.equal(rows.rowCount, 1);
+  assert.deepEqual(result, []);
+  assert.equal(result.rowCount, 4);
+  assert.deepEqual(result.rowsAffected, [4]);
   assert.deepEqual(calls, [
     { sql: "SELECT * FROM users WHERE id = @p1", inputs: [{ name: "p1", value: 3 }] },
     {
@@ -80,7 +116,7 @@ test("DB.query and DB.exec execute raw SQL on SQL Server", async () => {
   ]);
 });
 
-test("DB.query and DB.exec execute raw SQL on Oracle", async () => {
+test("DB.query executes raw SQL on Oracle with portable placeholders", async () => {
   const calls = [];
   let closeCount = 0;
   const adapter = new OracleAdapter({
@@ -99,14 +135,18 @@ test("DB.query and DB.exec execute raw SQL on Oracle", async () => {
   });
   const db = new DB(adapter);
 
-  assert.deepEqual(await db.query("SELECT * FROM users WHERE id = :p1", [4]), [{ ID: 4 }]);
-  assert.deepEqual(
-    await db.exec("UPDATE users SET active = :p1 WHERE id = :p2", [false, 4]),
-    { rowsAffected: 5, rows: [] },
-  );
+  const rows = await db.query("SELECT * FROM users WHERE id = ?", [4]);
+  const result = await db.query("UPDATE users SET active = ? WHERE id = ?", [false, 4]);
+
+  assert.deepEqual(rows, [{ ID: 4 }]);
+  assert.equal(rows.rows, rows);
+  assert.equal(rows.rowCount, 1);
+  assert.deepEqual(result, []);
+  assert.equal(result.rowCount, 5);
+  assert.equal(result.rowsAffected, 5);
   assert.equal(closeCount, 2);
   assert.deepEqual(calls, [
-    { sql: "SELECT * FROM users WHERE id = :p1", binds: { p1: 4 }, opts: { autoCommit: false } },
+    { sql: "SELECT * FROM users WHERE id = :p1", binds: { p1: 4 }, opts: { autoCommit: true } },
     {
       sql: "UPDATE users SET active = :p1 WHERE id = :p2",
       binds: { p1: false, p2: 4 },
@@ -115,9 +155,21 @@ test("DB.query and DB.exec execute raw SQL on Oracle", async () => {
   ]);
 });
 
+test("DB.exec rejects raw SQL and points users to DB.query", async () => {
+  const db = new DB(new PgAdapter({ async query() { return { rows: [], rowCount: 0 }; } }));
+
+  await assert.rejects(
+    () => db.exec("UPDATE users SET active = false"),
+    /db\.exec\(\) no longer executes raw SQL\. Use db\.query\(sql, params\) instead/,
+  );
+});
+
 test("DB.query and DB.exec reject raw SQL on Mongo", async () => {
   const db = new DB(new MongoAdapter({ collection() {} }));
 
   await assert.rejects(() => db.query("SELECT * FROM users"), /mongo: raw SQL query is not supported/);
-  await assert.rejects(() => db.exec("UPDATE users SET active = false"), /mongo: raw SQL exec is not supported/);
+  await assert.rejects(
+    () => db.exec("UPDATE users SET active = false"),
+    /db\.exec\(\) no longer executes raw SQL/,
+  );
 });

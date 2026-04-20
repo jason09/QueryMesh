@@ -623,7 +623,7 @@ const db = await QueryMesh.connect({
           </article>
           <article class="card">
             <h3>Full SQL</h3>
-            <p>Use <code>db.query(...)</code> for SQL rows and <code>db.exec(...)</code> for SQL command metadata.</p>
+            <p>Use <code>db.query(...)</code> for full SQL statements. It exposes <code>.rows</code> and <code>.rowCount</code>.</p>
           </article>
           <article class="card">
             <h3>Aliased joins</h3>
@@ -681,18 +681,23 @@ await db
 
           <article class="code-card">
             <div class="code-head">
-              <span>Full SQL query / exec</span>
+              <span>Full SQL query</span>
               <button class="copy" data-copy>Copy</button>
             </div>
-            <pre><code>const rows = await db.query(
-  "SELECT id, email FROM users WHERE id = $1",
+            <pre><code>const result = await db.query(
+  "SELECT id, email FROM users WHERE id = ?",
   [userId]
 );
 
-const result = await db.exec(
-  "UPDATE users SET active = false WHERE id = $1",
-  [userId]
-);</code></pre>
+console.log(result.rows);
+console.log(result.rowCount);
+
+const updateResult = await db.query(
+  "UPDATE users SET active = ? WHERE id = ?",
+  [false, userId]
+);
+
+console.log(updateResult.rowCount);</code></pre>
           </article>
 
           <article class="code-card">
@@ -706,10 +711,12 @@ await db.table("users")
   .get();
 
 // query(...) executes the whole SQL statement directly
-await db.query(
-  "SELECT * FROM users WHERE LOWER(email) = $1",
+const result = await db.query(
+  "SELECT * FROM users WHERE LOWER(email) = ?",
   [email.toLowerCase()]
-);</code></pre>
+);
+
+console.log(result.rows);</code></pre>
           </article>
 
           <article class="code-card">
