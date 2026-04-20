@@ -211,6 +211,54 @@ test("Mongo compiles non-equality joins with $lookup pipeline", () => {
   });
 });
 
+test("SQL compiles joins with multiple ON conditions", () => {
+  const out = new QueryBuilder(fakeAdapter("pg"), "B")
+    .select(["B.id", "A.name"])
+    .leftJoinOn("A", "B.X", "A.X")
+    .andOn("B.Y", "A.Y")
+    .compile();
+
+  assert.equal(
+    out.sql,
+    'SELECT "B"."id", "A"."name" FROM "B" LEFT JOIN "A" ON "B"."X" = "A"."X" AND "B"."Y" = "A"."Y"',
+  );
+  assert.deepEqual(out.params, []);
+});
+
+test("Mongo compiles joins with multiple ON conditions to $lookup pipeline", () => {
+  const out = new QueryBuilder(fakeAdapter("mongo"), "B")
+    .leftJoinOn("A", "B.X", "A.X")
+    .andOn("B.Y", "A.Y")
+    .compile();
+
+  assert.equal(out.mongo.op, "aggregate");
+  assert.deepEqual(out.mongo.pipeline[0], {
+    $lookup: {
+      from: "A",
+      let: {
+        __qm_join_left_1_1: "$X",
+        __qm_join_left_1_2: "$Y",
+      },
+      pipeline: [
+        {
+          $match: {
+            $expr: {
+              $and: [
+                { $eq: ["$$__qm_join_left_1_1", "$X"] },
+                { $eq: ["$$__qm_join_left_1_2", "$Y"] },
+              ],
+            },
+          },
+        },
+      ],
+      as: "A",
+    },
+  });
+  assert.deepEqual(out.mongo.pipeline[1], {
+    $unwind: { path: "$A", preserveNullAndEmptyArrays: true },
+  });
+});
+
 test("SQL compiles aliased joins for same table multiple times", () => {
   const out = new QueryBuilder(fakeAdapter("pg"), "shops")
     .select(["shops.id", "discount.name", "adminDiscount.name"])

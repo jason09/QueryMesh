@@ -49,6 +49,24 @@ export class DB {
   }
 
   /**
+   * Execute raw SQL and return rows. SQL dialects only.
+   * @param {string} sql
+   * @param {any[]} [params]
+   */
+  async query(sql, params = []) {
+    return this.adapter.query(sql, params);
+  }
+
+  /**
+   * Execute raw SQL command and return driver metadata. SQL dialects only.
+   * @param {string} sql
+   * @param {any[]} [params]
+   */
+  async exec(sql, params = []) {
+    return this.adapter.exec(sql, params);
+  }
+
+  /**
    * Schema/DDL builder (SQL dialects only).
    */
   schema() { return new SchemaBuilder(this.adapter); }

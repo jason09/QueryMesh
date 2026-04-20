@@ -22,6 +22,16 @@ export class PgAdapter extends BaseAdapter {
     return { rowCount: res.rowCount };
   }
 
+  async query(sql, params = []) {
+    const res = await this.pool.query(String(sql), normalizeParams(params));
+    return res.rows ?? [];
+  }
+
+  async exec(sql, params = []) {
+    const res = await this.pool.query(String(sql), normalizeParams(params));
+    return { rowCount: res.rowCount, rows: res.rows ?? [] };
+  }
+
   /**
    * Build PG CLI environment variables.
    */
@@ -217,4 +227,9 @@ export class PgAdapter extends BaseAdapter {
 function normalizeList(v) {
   if (!v) return [];
   return Array.isArray(v) ? v.map(String) : [String(v)];
+}
+
+function normalizeParams(params) {
+  if (params == null) return [];
+  return Array.isArray(params) ? params : [params];
 }

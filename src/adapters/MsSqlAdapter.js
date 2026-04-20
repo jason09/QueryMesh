@@ -28,6 +28,20 @@ export class MsSqlAdapter extends BaseAdapter {
     return { rowsAffected: res.rowsAffected };
   }
 
+  async query(sql, params = []) {
+    const req = this.pool.request();
+    bindParams(req, params);
+    const res = await req.query(String(sql));
+    return res.recordset ?? [];
+  }
+
+  async exec(sql, params = []) {
+    const req = this.pool.request();
+    bindParams(req, params);
+    const res = await req.query(String(sql));
+    return { rowsAffected: res.rowsAffected ?? [], recordset: res.recordset ?? [] };
+  }
+
   _serverName() {
     const c = this.config ?? {};
     return c.server ? String(c.server) : 'localhost';
@@ -196,4 +210,9 @@ export class MsSqlAdapter extends BaseAdapter {
 function normalizeList(v) {
   if (!v) return [];
   return Array.isArray(v) ? v.map(String) : [String(v)];
+}
+
+function bindParams(req, params) {
+  const list = params == null ? [] : (Array.isArray(params) ? params : [params]);
+  for (let i = 0; i < list.length; i++) req.input(`p${i + 1}`, list[i]);
 }

@@ -11,6 +11,11 @@ export interface ConnectOptions {
   importer?: (name: string) => Promise<any> | any;
 }
 
+export interface ToObjectIdOptions {
+  ObjectId?: new (value?: any) => any;
+  importer?: (name: string) => Promise<any> | any;
+}
+
 export interface SwitchDatabaseOptions {
   closeCurrent?: boolean;
   [k: string]: any;
@@ -156,6 +161,8 @@ export class QueryBuilder {
   innerJoinOnAs(table: string, alias: string, left: string, right: string): this;
   leftJoinOnAs(table: string, alias: string, left: string, right: string): this;
   rightJoinOnAs(table: string, alias: string, left: string, right: string): this;
+  andOn(left: string, opOrRight: string, right?: string): this;
+  orOn(left: string, opOrRight: string, right?: string): this;
   where(column: string | Raw, value: any): this;
   whereGroup(fn: (q: QueryBuilder) => any, bool?: "AND" | "OR"): this;
   whereNot(fn: (q: QueryBuilder) => any, bool?: "AND" | "OR"): this;
@@ -300,6 +307,8 @@ export class DB {
   raw(sql: string, params?: any[]): Raw;
   id(name: string): Identifier;
   quote(name: string): string;
+  query(sql: string, params?: any[]): Promise<any[]>;
+  exec(sql: string, params?: any[]): Promise<any>;
   schema(): any;
   backup(): BackupManager;
   tools(): ToolsManager;
@@ -335,6 +344,8 @@ export class BaseModel {
 export function connect(options: ConnectOptions): Promise<DB>;
 export function raw(sql: string, params?: any[]): Raw;
 export function id(name: string): Identifier;
+export function toObjectId(value: any, opts?: ToObjectIdOptions): Promise<any>;
+export function toObjectIdSync(value: any, ObjectId: new (value?: any) => any): any;
 
 declare const SQuery: {
   connect: typeof connect;
@@ -342,6 +353,8 @@ declare const SQuery: {
   BaseModel: typeof BaseModel;
   raw: typeof raw;
   id: typeof id;
+  toObjectId: typeof toObjectId;
+  toObjectIdSync: typeof toObjectIdSync;
   SQueryError: typeof SQueryError;
   ToolsManager: typeof ToolsManager;
 };

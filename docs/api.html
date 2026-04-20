@@ -1,0 +1,1203 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="QueryMesh API reference with module-by-module examples.">
+  <title>QueryMesh API Reference</title>
+  <style>
+    :root {
+      --ink: #101820;
+      --muted: #5f6b75;
+      --paper: #fff9ef;
+      --paper-deep: #f1e8d7;
+      --card: rgba(255, 255, 255, 0.82);
+      --line: rgba(16, 24, 32, 0.14);
+      --code: #0d1b1e;
+      --code-soft: #14282c;
+      --green: #0b6b53;
+      --green-deep: #073f34;
+      --copper: #bd6f37;
+      --sky: #99c8cf;
+      --shadow: 0 22px 70px rgba(16, 24, 32, 0.12);
+      --radius-lg: 28px;
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --max: 1220px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Trebuchet MS", "Avenir Next", Verdana, sans-serif;
+      background:
+        radial-gradient(circle at 0% 6%, rgba(153, 200, 207, 0.58), transparent 28rem),
+        radial-gradient(circle at 100% 12%, rgba(189, 111, 55, 0.2), transparent 26rem),
+        linear-gradient(135deg, var(--paper), var(--paper-deep));
+      line-height: 1.62;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(16, 24, 32, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(16, 24, 32, 0.035) 1px, transparent 1px);
+      background-size: 38px 38px;
+      mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent 82%);
+    }
+
+    a {
+      color: var(--green);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    .shell {
+      width: min(var(--max), calc(100% - 36px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(20px);
+      background: rgba(255, 249, 239, 0.82);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      min-height: 76px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--ink);
+      font-weight: 900;
+      letter-spacing: -0.04em;
+    }
+
+    .brand img {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      box-shadow: 0 12px 30px rgba(11, 107, 83, 0.18);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      font-size: 0.9rem;
+      font-weight: 800;
+    }
+
+    .hero {
+      padding: 76px 0 42px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      gap: 10px;
+      align-items: center;
+      margin: 0 0 16px;
+      padding: 8px 12px;
+      color: var(--green-deep);
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(11, 107, 83, 0.22);
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--copper);
+      box-shadow: 0 0 0 6px rgba(189, 111, 55, 0.14);
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      letter-spacing: -0.05em;
+      line-height: 1;
+    }
+
+    h1 {
+      max-width: 980px;
+      font-size: clamp(3rem, 7.2vw, 7.2rem);
+    }
+
+    h2 {
+      font-size: clamp(2rem, 4vw, 4rem);
+    }
+
+    h3 {
+      font-size: 1.34rem;
+      letter-spacing: -0.03em;
+    }
+
+    .lead {
+      max-width: 860px;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: clamp(1.06rem, 2vw, 1.26rem);
+    }
+
+    .quick-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 30px;
+    }
+
+    .quick-nav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 38px;
+      padding: 0 13px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.66);
+      border: 1px solid rgba(11, 107, 83, 0.16);
+      color: var(--green-deep);
+      font-weight: 900;
+    }
+
+    .section {
+      padding: 58px 0;
+    }
+
+    .module-head {
+      display: grid;
+      grid-template-columns: minmax(0, 0.72fr) minmax(300px, 0.5fr);
+      gap: 30px;
+      align-items: end;
+      margin-bottom: 22px;
+    }
+
+    .module-head p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .method-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .method {
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.76);
+      border-radius: var(--radius-md);
+      background: var(--card);
+      box-shadow: var(--shadow);
+    }
+
+    .method-body {
+      padding: 20px;
+    }
+
+    .signature {
+      display: inline-flex;
+      max-width: 100%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      color: #e8f3ef;
+      background: var(--code-soft);
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .method p {
+      margin: 12px 0 0;
+      color: var(--muted);
+    }
+
+    .code-card {
+      overflow: hidden;
+      background: var(--code);
+      color: #e8f3ef;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .code-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 44px;
+      padding: 0 14px;
+      color: rgba(232, 243, 239, 0.72);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 0.78rem;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .copy {
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      color: #e8f3ef;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 6px 10px;
+      font: inherit;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    pre {
+      margin: 0;
+      padding: 16px;
+      overflow-x: auto;
+    }
+
+    pre code {
+      font-size: 0.88rem;
+      line-height: 1.55;
+    }
+
+    .wide {
+      grid-column: 1 / -1;
+    }
+
+    .note {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border-left: 5px solid var(--copper);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow);
+    }
+
+    table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--green-deep);
+      background: rgba(153, 200, 207, 0.26);
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .footer {
+      padding: 48px 0 72px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+    }
+
+    .footer strong {
+      color: var(--ink);
+    }
+
+    @media (max-width: 900px) {
+      .module-head,
+      .method-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .wide {
+        grid-column: auto;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: min(100% - 24px, var(--max));
+      }
+
+      .nav {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 14px 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell nav">
+      <a class="brand" href="index.html">
+        <img src="../assets/querymesh-icon.png" alt="QueryMesh icon">
+        <span>QueryMesh</span>
+      </a>
+      <nav class="nav-links" aria-label="API navigation">
+        <a href="index.html">Docs</a>
+        <a href="#root">Root</a>
+        <a href="#db">DB</a>
+        <a href="#query-builder">QueryBuilder</a>
+        <a href="#schema">Schema</a>
+        <a href="#model">Model</a>
+        <a href="#tools">Tools</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="shell">
+        <p class="eyebrow"><span class="dot"></span> API reference</p>
+        <h1>Every QueryMesh module, explained with examples.</h1>
+        <p class="lead">
+          This page documents the public QueryMesh API by module. Examples assume an existing
+          <code>db</code> instance created with <code>QueryMesh.connect(...)</code>.
+        </p>
+        <div class="quick-nav">
+          <a href="#root">QueryMesh root</a>
+          <a href="#db">DB</a>
+          <a href="#query-builder">QueryBuilder</a>
+          <a href="#schema">SchemaBuilder</a>
+          <a href="#model">BaseModel</a>
+          <a href="#backup">BackupManager</a>
+          <a href="#tools">ToolsManager</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="root">
+      <div class="shell">
+        <div class="module-head">
+          <h2>QueryMesh root</h2>
+          <p>The root module creates connections and exposes helpers for raw SQL, safe identifiers, and Mongo ObjectId conversion.</p>
+        </div>
+
+        <div class="method-grid">
+          <article class="method wide">
+            <div class="method-body">
+              <h3><code>connect(options)</code></h3>
+              <p class="signature"><code>connect({ dialect, config, features?, importer? }): Promise&lt;DB&gt;</code></p>
+              <p>Creates a connected <code>DB</code> instance for <code>pg</code>, <code>mysql</code>, <code>mssql</code>, <code>oracle</code>, <code>mongo</code>, <code>mongodb</code>, or <code>mongoose</code>.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>import QueryMesh from "querymesh";
+
+const db = await QueryMesh.connect({
+  dialect: "pg",
+  config: {
+    server: "localhost",
+    user: "postgres",
+    password: "postgres",
+    database: "app",
+    port: 5432,
+  },
+});</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3><code>raw(sql, params?)</code></h3>
+              <p class="signature"><code>raw(sql: string, params?: any[]): Raw</code></p>
+              <p>Creates a raw SQL fragment or raw source for places where QueryMesh accepts raw expressions. Use it when the fragment should be inserted into generated SQL instead of quoted as an identifier or bound as a plain value.</p>
+              <p>Use <code>raw(...)</code> sparingly and only with trusted SQL fragments. Keep user input as normal QueryMesh values whenever possible.</p>
+              <p>For full manual SQL execution, use <code>db.query(...)</code> or <code>db.exec(...)</code> instead of <code>raw(...)</code>.</p>
+              <p>Rule of thumb: <code>raw(...)</code> is part of a generated QueryMesh query; <code>db.query(...)</code> is the whole SQL query.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>import { raw } from "querymesh";
+
+const user = await db
+  .table("users")
+  .where(raw("LOWER(email)"), "alice@example.com")
+  .first();
+
+await db
+  .table("posts")
+  .update({ updated_at: raw("CURRENT_TIMESTAMP") })
+  .where("id", postId)
+  .run();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3><code>id(name)</code></h3>
+              <p class="signature"><code>id(name: string): Identifier</code></p>
+              <p>Marks a value as an identifier instead of a normal value. Use it when a method accepts identifier helpers.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>import { id } from "querymesh";
+
+const quoted = db.quote(id("users.email").name);</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3><code>toObjectId(value, opts?)</code></h3>
+              <p class="signature"><code>toObjectId(value, { ObjectId?, importer? }?): Promise&lt;any&gt;</code></p>
+              <p>Converts strings or Extended JSON <code>{ $oid }</code> values to MongoDB ObjectId. It lazy-loads <code>mongodb</code> unless you pass an <code>ObjectId</code> constructor.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>import { toObjectId } from "querymesh";
+
+const id = await toObjectId("507f1f77bcf86cd799439011");
+const user = await db.table("users").where("_id", id).first();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3><code>toObjectIdSync(value, ObjectId)</code></h3>
+              <p class="signature"><code>toObjectIdSync(value: any, ObjectId: constructor): any</code></p>
+              <p>Synchronous ObjectId conversion. It does not import anything; pass the constructor from <code>mongodb</code> or Mongoose.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>import { ObjectId } from "mongodb";
+import { toObjectIdSync } from "querymesh";
+
+const id = toObjectIdSync(payload.userId, ObjectId);</code></pre>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="db">
+      <div class="shell">
+        <div class="module-head">
+          <h2>DB</h2>
+          <p>The <code>DB</code> instance is the main runtime object returned by <code>connect(...)</code>.</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>What it does</th>
+                <th>Example</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>table(name)</code></td>
+                <td>Starts a <code>QueryBuilder</code> for a table or collection.</td>
+                <td><code>db.table("users").where("active", true).get()</code></td>
+              </tr>
+              <tr>
+                <td><code>query(sql, params?)</code></td>
+                <td>Executes full raw SQL and returns rows. SQL dialects only.</td>
+                <td><code>await db.query("SELECT * FROM users WHERE id = $1", [id])</code></td>
+              </tr>
+              <tr>
+                <td><code>exec(sql, params?)</code></td>
+                <td>Executes full raw SQL command and returns driver metadata. SQL dialects only.</td>
+                <td><code>await db.exec("UPDATE users SET active = false WHERE id = $1", [id])</code></td>
+              </tr>
+              <tr>
+                <td><code>raw(sql, params?)</code></td>
+                <td>Convenience wrapper around root <code>raw(...)</code>.</td>
+                <td><code>db.raw("CURRENT_TIMESTAMP")</code></td>
+              </tr>
+              <tr>
+                <td><code>id(name)</code></td>
+                <td>Convenience wrapper around root <code>id(...)</code>.</td>
+                <td><code>db.id("users.email")</code></td>
+              </tr>
+              <tr>
+                <td><code>quote(name)</code></td>
+                <td>Quotes an identifier for the current dialect.</td>
+                <td><code>db.quote("users.email")</code></td>
+              </tr>
+              <tr>
+                <td><code>schema()</code></td>
+                <td>Starts schema/DDL/introspection operations.</td>
+                <td><code>db.schema().showTables()</code></td>
+              </tr>
+              <tr>
+                <td><code>backup()</code></td>
+                <td>Starts import/export operations using native CLI tools.</td>
+                <td><code>db.backup().export({ file: "dump.sql" })</code></td>
+              </tr>
+              <tr>
+                <td><code>tools()</code></td>
+                <td>Returns runtime and CLI diagnostics helper.</td>
+                <td><code>await db.tools().getDiagnostics()</code></td>
+              </tr>
+              <tr>
+                <td><code>switchDatabase(name, opts?)</code></td>
+                <td>Switches the current DB instance to another database.</td>
+                <td><code>await db.switchDatabase("app_b")</code></td>
+              </tr>
+              <tr>
+                <td><code>useDatabase(name, opts?)</code></td>
+                <td>Alias of <code>switchDatabase(...)</code>.</td>
+                <td><code>await db.useDatabase("app_c")</code></td>
+              </tr>
+              <tr>
+                <td><code>switchDialect(dialect, config, opts?)</code></td>
+                <td>Reconnects the same DB object to another dialect.</td>
+                <td><code>await db.switchDialect("mongo", { connectionString })</code></td>
+              </tr>
+              <tr>
+                <td><code>useDialect(dialect, config, opts?)</code></td>
+                <td>Alias of <code>switchDialect(...)</code>.</td>
+                <td><code>await db.useDialect("pg", pgConfig)</code></td>
+              </tr>
+              <tr>
+                <td><code>transaction(fn)</code></td>
+                <td>Runs work inside a transaction/session where supported.</td>
+                <td><code>await db.transaction(async (trx) =&gt; trx.table("logs").insert(row).run())</code></td>
+              </tr>
+              <tr>
+                <td><code>model(ModelClass)</code></td>
+                <td>Binds a <code>BaseModel</code> subclass to the current DB.</td>
+                <td><code>const User = db.model(UserModel)</code></td>
+              </tr>
+              <tr>
+                <td><code>close()</code></td>
+                <td>Closes the underlying pool/client when supported.</td>
+                <td><code>await db.close()</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="code-card note">
+          <div class="code-head"><span>Transaction example</span><button class="copy" data-copy>Copy</button></div>
+          <pre><code>await db.transaction(async (trx) =&gt; {
+  await trx.table("accounts").update({ balance: 90 }).where("id", 1).run();
+  await trx.table("accounts").update({ balance: 110 }).where("id", 2).run();
+});</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="query-builder">
+      <div class="shell">
+        <div class="module-head">
+          <h2>QueryBuilder</h2>
+          <p>The fluent builder powers selects, joins, filters, aggregates, set operations, and mutations.</p>
+        </div>
+
+        <div class="method-grid">
+          <article class="method">
+            <div class="method-body">
+              <h3>Selection</h3>
+              <p class="signature"><code>select, distinct, aggregate, count, sum, avg, min, max, clearAggregates</code></p>
+              <p>Choose returned columns and aggregate values.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const stats = await db
+  .table("orders")
+  .select("status")
+  .count("*", "total")
+  .min("amount", "min_amount")
+  .max("amount", "max_amount")
+  .groupBy("status")
+  .get();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Filtering</h3>
+              <p class="signature"><code>where, orWhere, whereOp, whereGroup, orWhereGroup, whereNot, orWhereNot</code></p>
+              <p>Build basic and grouped boolean filters. Callback groups compile explicit parentheses for SQL and preserve logic for Mongo.</p>
+              <p><code>where("field", value)</code> means equality. Use <code>whereOp("field", "&gt;", value)</code> when you need a custom operator. Use <code>orWhere(...)</code> to start an OR branch.</p>
+              <p><code>where((q) =&gt; ...)</code> is the same idea as <code>whereGroup(...)</code>: it creates parentheses around the nested conditions. <code>whereNot((q) =&gt; ...)</code> creates <code>NOT (...)</code>.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const rows = await db
+  .table("users")
+  .where((q) =&gt; q.where("a", x).where("b", y))
+  .orWhere((q) =&gt; q.where("c", z).orWhere("d", xx))
+  .whereNot((q) =&gt; q.where("blocked", true))
+  .get();</code></pre>
+            </div>
+            <div class="method-body">
+              <p>This reads as: <code>(a = x AND b = y) OR ((c = z OR d = xx) AND NOT (blocked = true))</code>. Use grouped callbacks whenever the exact parentheses matter.</p>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Predicates</h3>
+              <p class="signature"><code>whereIn, whereNotIn, whereBetween, whereNotBetween, whereNull, whereNotNull, whereIs, whereIsNot</code></p>
+              <p>Use common predicate helpers for lists, ranges, null checks, and SQL <code>IS</code> tests.</p>
+              <p>Use predicates when the condition has a specific shape: membership, range, null, or boolean/null identity. They are clearer than manually writing the same logic with operators.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const rows = await db
+  .table("users")
+  .whereIn("role", ["admin", "editor"])
+  .whereBetween("created_at", start, end)
+  .whereIsNull("deleted_at")
+  .get();</code></pre>
+            </div>
+            <div class="method-body">
+              <p>This returns users whose role is either <code>admin</code> or <code>editor</code>, whose creation date is inside the range, and whose <code>deleted_at</code> value is null. In Mongo, these map to native operators like <code>$in</code> and range filters.</p>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Quantified comparisons</h3>
+              <p class="signature"><code>whereAny, whereAll, orWhereAny, orWhereAll</code></p>
+              <p>Build <code>ANY</code> and <code>ALL</code> comparisons. Mongo supports literal arrays; SQL supports arrays and subquery/raw sources.</p>
+              <p>Use quantified comparisons when a value must compare against a set. <code>ANY</code> means the comparison can match at least one value. <code>ALL</code> means it must match every value.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const rows = await db
+  .table("users")
+  .whereAny("score", "&gt;", [10, 20, 30])
+  .get();</code></pre>
+            </div>
+            <div class="method-body">
+              <p>This means <code>score &gt; ANY([10, 20, 30])</code>: keep rows where <code>score</code> is greater than at least one value in the array. Use <code>whereIn</code> instead when you only need membership, such as <code>role IN (...)</code>.</p>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Joins</h3>
+              <p class="signature"><code>join, joinAs, joinOn, joinOnAs, innerJoin, leftJoin, rightJoin, innerJoinOn, leftJoinOn, rightJoinOn, innerJoinOnAs, leftJoinOnAs, rightJoinOnAs, andOn, orOn</code></p>
+              <p>Join tables or collections. In Mongo, joins compile to <code>$lookup</code> and <code>$unwind</code>; aliases become <code>$lookup.as</code>.</p>
+              <p>Use <code>andOn(...)</code> or <code>orOn(...)</code> after a join when the <code>ON</code> clause has multiple predicates. For MongoDB, put the current collection field first and the joined collection field second.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const rows = await db
+  .table("tickets")
+  .leftJoinOnAs("users", "creator", "tickets.created_by", "creator.id")
+  .leftJoinOnAs("users", "assignee", "tickets.assigned_to", "assignee.id")
+  .select(["tickets.id", "creator.name", "assignee.name"])
+  .get();</code></pre>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Multiple ON predicates</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>// LEFT JOIN A ON B.X = A.X AND B.Y = A.Y
+const rows = await db
+  .table("B")
+  .leftJoinOn("A", "B.X", "A.X")
+  .andOn("B.Y", "A.Y")
+  .get();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Set operations</h3>
+              <p class="signature"><code>union, unionAll, clearUnions</code></p>
+              <p>Combine compatible select queries. Mongo supports QueryBuilder sources only.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const q1 = db.table("users").select("id").where("active", true);
+const q2 = db.table("admins").select("id").where("enabled", true);
+
+const rows = await q1.unionAll(q2).get();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Mutations</h3>
+              <p class="signature"><code>insert, insertSelect, update, delete, returning</code></p>
+              <p>Build write operations. Use <code>run()</code> to execute mutations.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const [post] = await db
+  .table("posts")
+  .insert({ title: payload.title, author_id: payload.authorId })
+  .returning(["id", "title", "author_id"])
+  .run();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Upsert helpers</h3>
+              <p class="signature"><code>onConflictDoUpdate, onDuplicateKeyUpdate</code></p>
+              <p>Use PostgreSQL-style conflict update or MySQL duplicate-key update. QueryMesh maps supported dialects where possible.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>await db
+  .table("users")
+  .insert({ email: "a@b.com", name: "Alice" })
+  .onConflictDoUpdate("email", { name: "Alice" })
+  .run();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Result controls</h3>
+              <p class="signature"><code>groupBy, having, orderBy, limit, offset</code></p>
+              <p>Control grouping, aggregate filters, ordering, and pagination.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const page = await db
+  .table("posts")
+  .where("status", "published")
+  .orderBy("created_at", "desc")
+  .offset(20)
+  .limit(10)
+  .get();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Execution</h3>
+              <p class="signature"><code>compile, run, get, first</code></p>
+              <p>Compile without executing, execute mutations, fetch many rows, or fetch one row.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const compiled = db.table("users").where("id", 1).compile();
+const rows = await db.table("users").get();
+const first = await db.table("users").where("id", 1).first();</code></pre>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="schema">
+      <div class="shell">
+        <div class="module-head">
+          <h2>SchemaBuilder</h2>
+          <p>SchemaBuilder handles DDL and introspection. Start with <code>db.schema()</code>.</p>
+        </div>
+
+        <div class="method-grid">
+          <article class="method">
+            <div class="method-body">
+              <h3>Tables</h3>
+              <p class="signature"><code>createTable, alterTable, dropTable, renameTable</code></p>
+              <p>Create and modify SQL tables. Mongo currently maps <code>dropTable</code> to collection drop.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>await db.schema().createTable("posts", (t) =&gt; {
+  t.bigInt("id").primary();
+  t.string("title", 200).notNull();
+  t.text("body");
+  t.timestamps();
+}).exec();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Databases and schemas</h3>
+              <p class="signature"><code>createDatabase, dropDatabase, showDatabases, createSchema, dropSchema</code></p>
+              <p>Create/drop databases where supported, list databases, and manage PostgreSQL schemas.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>await db.schema().createDatabase("analytics", { ifNotExists: true }).exec();
+const names = await db.schema().showDatabases();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Views</h3>
+              <p class="signature"><code>createView, dropView</code></p>
+              <p>Create and drop SQL views. MongoDB views are not supported by QueryMesh schema APIs.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const active = db.table("users").select(["id", "email"]).where("active", true);
+
+await db.schema()
+  .createView("active_users", active, { orReplace: true })
+  .exec();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Triggers</h3>
+              <p class="signature"><code>createTrigger, dropTrigger</code></p>
+              <p>Create/drop triggers for SQL dialects. MongoDB triggers are not supported in QueryMesh.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>await db.schema().createTrigger({
+  name: "trg_users_touch",
+  table: "users",
+  timing: "before",
+  events: ["update"],
+  body: "NEW.updated_at = CURRENT_TIMESTAMP;",
+}).exec();</code></pre>
+            </div>
+          </article>
+
+          <article class="method wide">
+            <div class="method-body">
+              <h3>Introspection</h3>
+              <p class="signature"><code>showTables, showDatabases, getDesc(target?, opts?), exec</code></p>
+              <p>List tables/databases and return normalized table/database structure. <code>includeCreateSql</code> can include formatted creation scripts where supported.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const tables = await db.schema().showTables();
+
+const tableDesc = await db.schema().getDesc("users", {
+  strict: true,
+  includeCreateSql: true,
+});
+
+const dbDesc = await db.schema().getDesc("database", {
+  deep: true,
+  includeViews: true,
+});</code></pre>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="model">
+      <div class="shell">
+        <div class="module-head">
+          <h2>BaseModel</h2>
+          <p>A light ORM layer over QueryBuilder. Bind models with <code>db.model(ModelClass)</code>.</p>
+        </div>
+
+        <div class="method-grid">
+          <article class="method">
+            <div class="method-body">
+              <h3>Static API</h3>
+              <p class="signature"><code>bind, query, find, all, create, where, hydrate</code></p>
+              <p>Define a model class with <code>table</code> and <code>primaryKey</code>, then use static helpers.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>import { BaseModel } from "querymesh";
+
+class User extends BaseModel {
+  static table = "users";
+  static primaryKey = "id";
+}
+
+const UserModel = db.model(User);
+
+const user = await UserModel.create({ email: "a@b.com" });
+const found = await UserModel.find(1);
+const admins = await UserModel.where("role", "admin");</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Instance API</h3>
+              <p class="signature"><code>save, delete</code></p>
+              <p>Persist or delete hydrated model instances.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const user = await UserModel.find(1);
+
+user.email = "new@example.com";
+await user.save();
+
+await user.delete();</code></pre>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="backup">
+      <div class="shell">
+        <div class="module-head">
+          <h2>BackupManager</h2>
+          <p>BackupManager wraps native CLI tools and exposes progress events. Start with <code>db.backup()</code>.</p>
+        </div>
+
+        <div class="method-grid">
+          <article class="method">
+            <div class="method-body">
+              <h3><code>export(options?)</code></h3>
+              <p class="signature"><code>export(options?: BackupExportOptions): BackupJob</code></p>
+              <p>Exports a database, schema, or selected tables using the current dialect tooling.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const job = db.backup().export({
+  file: "backup.dump",
+  format: "custom",
+  tables: ["users", "posts"],
+});
+
+job.on("progress", (e) =&gt; console.log(e.percent));
+await job.done;</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3><code>import(options?)</code></h3>
+              <p class="signature"><code>import(options?: BackupImportOptions): BackupJob</code></p>
+              <p>Imports or restores from a file/directory/archive where the dialect tooling supports it.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const job = db.backup().import({
+  file: "backup.dump",
+  format: "custom",
+});
+
+job.on("log", (e) =&gt; console.log(e.line));
+await job.done;</code></pre>
+            </div>
+          </article>
+        </div>
+
+        <div class="note">
+          Backup jobs emit <code>start</code>, <code>progress</code>, <code>log</code>, <code>error</code>, and <code>done</code>. They also expose <code>done</code> as a promise and <code>abort()</code>.
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="tools">
+      <div class="shell">
+        <div class="module-head">
+          <h2>ToolsManager</h2>
+          <p>ToolsManager checks CLI availability and runtime database health/version information. Start with <code>db.tools()</code>.</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>What it does</th>
+                <th>Example</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>isCommandAvailable(command)</code></td>
+                <td>Checks if a command exists on the current PATH.</td>
+                <td><code>tools.isCommandAvailable("psql")</code></td>
+              </tr>
+              <tr>
+                <td><code>getCliVersion(command, args?)</code></td>
+                <td>Reads CLI version output using candidate version args.</td>
+                <td><code>tools.getCliVersion("mongodump")</code></td>
+              </tr>
+              <tr>
+                <td><code>isPostgresInstalled()</code> / <code>isPostgreInstalled()</code></td>
+                <td>Checks PostgreSQL CLI tooling.</td>
+                <td><code>tools.isPostgresInstalled()</code></td>
+              </tr>
+              <tr>
+                <td><code>isMySqlInstalled()</code></td>
+                <td>Checks MySQL CLI tooling.</td>
+                <td><code>tools.isMySqlInstalled()</code></td>
+              </tr>
+              <tr>
+                <td><code>isMsSqlInstalled()</code></td>
+                <td>Checks SQL Server CLI tooling.</td>
+                <td><code>tools.isMsSqlInstalled()</code></td>
+              </tr>
+              <tr>
+                <td><code>isOracleInstalled()</code></td>
+                <td>Checks Oracle CLI tooling.</td>
+                <td><code>tools.isOracleInstalled()</code></td>
+              </tr>
+              <tr>
+                <td><code>isMongoInstalled()</code></td>
+                <td>Checks MongoDB CLI tooling.</td>
+                <td><code>tools.isMongoInstalled()</code></td>
+              </tr>
+              <tr>
+                <td><code>getToolingStatus(dialect?)</code></td>
+                <td>Returns required CLI tool status for a dialect.</td>
+                <td><code>tools.getToolingStatus("mongo")</code></td>
+              </tr>
+              <tr>
+                <td><code>getAllToolingStatus()</code></td>
+                <td>Returns status for all supported dialect toolchains.</td>
+                <td><code>tools.getAllToolingStatus()</code></td>
+              </tr>
+              <tr>
+                <td><code>getCurrentDialectCliVersion()</code></td>
+                <td>Returns the main CLI version for the current dialect.</td>
+                <td><code>tools.getCurrentDialectCliVersion()</code></td>
+              </tr>
+              <tr>
+                <td><code>ping()</code></td>
+                <td>Checks if the current database connection responds.</td>
+                <td><code>await tools.ping()</code></td>
+              </tr>
+              <tr>
+                <td><code>getVersion()</code></td>
+                <td>Reads server version for the current dialect.</td>
+                <td><code>await tools.getVersion()</code></td>
+              </tr>
+              <tr>
+                <td><code>getDiagnostics()</code></td>
+                <td>Returns dialect, ping, server version, and CLI status.</td>
+                <td><code>await tools.getDiagnostics()</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="code-card note">
+          <div class="code-head"><span>Diagnostics example</span><button class="copy" data-copy>Copy</button></div>
+          <pre><code>const tools = db.tools();
+
+const ok = await tools.ping();
+const version = await tools.getVersion();
+const diagnostics = await tools.getDiagnostics();</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="types">
+      <div class="shell">
+        <div class="module-head">
+          <h2>Common types</h2>
+          <p>These are the main TypeScript-facing option and result shapes.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Purpose</th>
+                <th>Common fields</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>ConnectOptions</code></td>
+                <td>Input for <code>connect(...)</code>.</td>
+                <td><code>dialect</code>, <code>config</code>, <code>features</code>, <code>importer</code></td>
+              </tr>
+              <tr>
+                <td><code>GetDescOptions</code></td>
+                <td>Options for schema/table/database introspection.</td>
+                <td><code>schema</code>, <code>deep</code>, <code>strict</code>, <code>includeCreateSql</code>, <code>sampleSize</code></td>
+              </tr>
+              <tr>
+                <td><code>TableDesc</code></td>
+                <td>Normalized table/collection description.</td>
+                <td><code>kind</code>, <code>dialect</code>, <code>name</code>, <code>columns</code>, <code>createSql</code></td>
+              </tr>
+              <tr>
+                <td><code>DatabaseDesc</code></td>
+                <td>Normalized database description.</td>
+                <td><code>tables</code>, <code>views</code>, <code>collections</code>, <code>tableDescriptions</code>, <code>createSql</code></td>
+              </tr>
+              <tr>
+                <td><code>BackupJob</code></td>
+                <td>Import/export job object.</td>
+                <td><code>done</code>, <code>abort</code>, <code>on("progress")</code>, <code>on("done")</code></td>
+              </tr>
+              <tr>
+                <td><code>ToolingStatus</code></td>
+                <td>CLI tooling status for one dialect.</td>
+                <td><code>dialect</code>, <code>tools</code>, <code>allInstalled</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell">
+      <strong>QueryMesh API Reference</strong>
+      <p>For a guided overview, open <a href="index.html">docs/index.html</a>.</p>
+    </div>
+  </footer>
+
+  <script>
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const card = button.closest(".method, .code-card");
+        const code = card ? card.querySelector("code") : null;
+        if (!code) return;
+        try {
+          await navigator.clipboard.writeText(code.innerText);
+          const previous = button.innerText;
+          button.innerText = "Copied";
+          setTimeout(() => {
+            button.innerText = previous;
+          }, 1100);
+        } catch {
+          button.innerText = "Select";
+        }
+      });
+    });
+  </script>
+</body>
+</html>

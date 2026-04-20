@@ -326,7 +326,40 @@ clearAggregates() {
     const as = alias == null ? null : String(alias).trim();
     if (alias != null && !as) throw new Error('join alias must not be empty');
 
-    this._joins.push({ type, table, left, op, right, as: as || null });
+    this._joins.push({ type, table, left, op, right, as: as || null, ons: [] });
+    return this;
+  }
+
+  /**
+   * Add an AND predicate to the most recent JOIN ... ON clause.
+   * @param {string} left
+   * @param {string} opOrRight
+   * @param {string} [maybeRight]
+   */
+  andOn(left, opOrRight, maybeRight) {
+    return this._pushJoinOn('AND', left, opOrRight, maybeRight);
+  }
+
+  /**
+   * Add an OR predicate to the most recent JOIN ... ON clause.
+   * @param {string} left
+   * @param {string} opOrRight
+   * @param {string} [maybeRight]
+   */
+  orOn(left, opOrRight, maybeRight) {
+    return this._pushJoinOn('OR', left, opOrRight, maybeRight);
+  }
+
+  _pushJoinOn(bool, left, opOrRight, maybeRight) {
+    const join = this._joins[this._joins.length - 1];
+    if (!join) throw new Error(`${String(bool).toLowerCase()}On() requires a previous join`);
+
+    const op = assertOp((maybeRight === undefined) ? '=' : opOrRight, JOIN_OPS, 'join');
+    const right = (maybeRight === undefined) ? opOrRight : maybeRight;
+    const joiner = String(bool).toUpperCase() === 'OR' ? 'OR' : 'AND';
+
+    if (!Array.isArray(join.ons)) join.ons = [];
+    join.ons.push({ bool: joiner, left, op, right });
     return this;
   }
 
@@ -823,7 +856,7 @@ clearAggregates() {
     let sql = `SELECT ${distinct}${cols} FROM ${this.q(this._table)}`;
 
     for (const j of this._joins) {
-      sql += ` ${j.type.toUpperCase()} JOIN ${this._compileSqlTableRef(j.table, j.as)} ON ${this.q(j.left)} ${j.op} ${this.q(j.right)}`;
+      sql += ` ${j.type.toUpperCase()} JOIN ${this._compileSqlTableRef(j.table, j.as)} ON ${this._compileSqlJoinOn(j)}`;
     }
 
     sql += this._compileWhere(params);
@@ -868,6 +901,14 @@ clearAggregates() {
     if (offset != null) sql += ` OFFSET ${offset}`;
 
     return sql;
+  }
+
+  _compileSqlJoinOn(join) {
+    const parts = [`${this.q(join.left)} ${join.op} ${this.q(join.right)}`];
+    for (const on of join.ons ?? []) {
+      parts.push(`${on.bool} ${this.q(on.left)} ${on.op} ${this.q(on.right)}`);
+    }
+    return parts.join(' ');
   }
 
   _compileSqlTableRef(table, alias = null) {
@@ -1333,11 +1374,11 @@ clearAggregates() {
     for (const [i, j] of this._joins.entries()) {
       const joinTable = String(j.table);
       const joinAlias = String(j.as || joinTable);
-      const left = stripPrefix(String(j.left), collection);
-      const right = stripJoinPrefix(String(j.right), joinTable, joinAlias);
-      const op = normalizeOp(j.op || '=');
+      const conditions = getJoinOnConditions(j);
 
-      if (op === '=') {
+      if (conditions.length === 1 && conditions[0].op === '=') {
+        const left = stripPrefix(String(conditions[0].left), collection);
+        const right = stripJoinPrefix(String(conditions[0].right), joinTable, joinAlias);
         pipeline.push({
           $lookup: {
             from: joinTable,
@@ -1347,17 +1388,15 @@ clearAggregates() {
           },
         });
       } else {
-        const leftVar = `__qm_join_left_${i + 1}`;
+        const { letVars, expr } = buildMongoJoinExpr(conditions, collection, joinTable, joinAlias, i + 1);
         pipeline.push({
           $lookup: {
             from: joinTable,
-            let: { [leftVar]: `$${left}` },
+            let: letVars,
             pipeline: [
               {
                 $match: {
-                  $expr: {
-                    [mongoJoinExprOperator(op)]: [`$$${leftVar}`, `$${right}`],
-                  },
+                  $expr: expr,
                 },
               },
             ],
@@ -1428,6 +1467,56 @@ function stripJoinPrefix(path, table, alias) {
   const aliasPrefix = String(alias) + '.';
   if (s.startsWith(aliasPrefix)) return s.slice(aliasPrefix.length);
   return s;
+}
+
+function getJoinOnConditions(join) {
+  return [
+    { bool: 'AND', left: join.left, op: normalizeOp(join.op || '='), right: join.right },
+    ...(join.ons ?? []).map(on => ({
+      bool: String(on.bool).toUpperCase() === 'OR' ? 'OR' : 'AND',
+      left: on.left,
+      op: normalizeOp(on.op || '='),
+      right: on.right,
+    })),
+  ];
+}
+
+function buildMongoJoinExpr(conditions, baseCollection, joinTable, joinAlias, joinIndex) {
+  const letVars = {};
+  const groups = [];
+  let current = [];
+
+  for (const [idx, condition] of conditions.entries()) {
+    const left = stripPrefix(String(condition.left), baseCollection);
+    const right = stripJoinPrefix(String(condition.right), joinTable, joinAlias);
+    const leftVar = conditions.length === 1
+      ? `__qm_join_left_${joinIndex}`
+      : `__qm_join_left_${joinIndex}_${idx + 1}`;
+    const expr = {
+      [mongoJoinExprOperator(condition.op)]: [`$$${leftVar}`, `$${right}`],
+    };
+
+    letVars[leftVar] = `$${left}`;
+
+    if (idx > 0 && condition.bool === 'OR') {
+      if (current.length) groups.push(current);
+      current = [expr];
+    } else {
+      current.push(expr);
+    }
+  }
+
+  if (current.length) groups.push(current);
+
+  const disj = groups.map(group => {
+    if (group.length === 1) return group[0];
+    return { $and: group };
+  });
+
+  return {
+    letVars,
+    expr: disj.length === 1 ? disj[0] : { $or: disj },
+  };
 }
 
 function condToFilter(w, baseTable) {

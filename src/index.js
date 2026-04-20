@@ -69,6 +69,68 @@ function resolveModuleExport(mod, name) {
   return undefined;
 }
 
+function isObjectIdLike(value) {
+  if (!value || typeof value !== 'object') return false;
+  const tag = String(value._bsontype ?? '').toLowerCase();
+  if (tag === 'objectid') return true;
+  return typeof value.toHexString === 'function';
+}
+
+function normalizeObjectIdInput(value) {
+  if (value == null) return { passthrough: true, value };
+  if (isObjectIdLike(value)) return { passthrough: true, value };
+  const source = (value && typeof value === 'object' && '$oid' in value) ? value.$oid : value;
+  return { passthrough: false, source };
+}
+
+async function resolveObjectIdCtor(importer) {
+  const mongo = await importDialectPackage('mongo', importer, 'mongo');
+  const ObjectId = resolveModuleExport(mongo, 'ObjectId') ?? resolveModuleExport(mongo, 'ObjectID');
+  if (typeof ObjectId !== 'function') {
+    throw new Error('Invalid driver package "mongodb": missing ObjectId constructor export');
+  }
+  return ObjectId;
+}
+
+/**
+ * Convert a value to MongoDB ObjectId using a provided ObjectId constructor.
+ *
+ * @param {any} value
+ * @param {any} ObjectId
+ * @returns {any}
+ */
+export function toObjectIdSync(value, ObjectId) {
+  const normalized = normalizeObjectIdInput(value);
+  if (normalized.passthrough) return normalized.value;
+  if (typeof ObjectId !== 'function') {
+    throw new Error('toObjectIdSync requires ObjectId constructor');
+  }
+
+  try {
+    return new ObjectId(normalized.source);
+  } catch (err) {
+    throw new Error(`Invalid ObjectId value: ${String(normalized.source)}`);
+  }
+}
+
+/**
+ * Convert a value to MongoDB ObjectId.
+ *
+ * - Returns the same value if it already looks like an ObjectId.
+ * - Supports Extended JSON object shape: `{ $oid: "..." }`.
+ *
+ * @param {any} value
+ * @param {{ ObjectId?: any, importer?: (name:string)=>Promise<any>|any }} [opts]
+ * @returns {Promise<any>}
+ */
+export async function toObjectId(value, opts = {}) {
+  const ObjectId = (typeof opts?.ObjectId === 'function')
+    ? opts.ObjectId
+    : await resolveObjectIdCtor(opts?.importer);
+
+  return toObjectIdSync(value, ObjectId);
+}
+
 function normalizePgConfig(config) {
   const raw = (config && typeof config === 'object') ? { ...config } : {};
   const nestedOptions = (raw.options && typeof raw.options === 'object' && !Array.isArray(raw.options))
@@ -282,6 +344,8 @@ export default {
   BaseModel,
   raw,
   id,
+  toObjectId,
+  toObjectIdSync,
   SQueryError,
   ToolsManager,
 };

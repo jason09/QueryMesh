@@ -24,6 +24,14 @@ export class MySqlAdapter extends BaseAdapter {
     return res;
   }
 
+  async query(sql, params = []) {
+    return await this.queryAsync(String(sql), normalizeParams(params));
+  }
+
+  async exec(sql, params = []) {
+    return await this.queryAsync(String(sql), normalizeParams(params));
+  }
+
   _mysqlEnv() {
     const c = this.config ?? {};
     const env = {};
@@ -162,4 +170,9 @@ export class MySqlAdapter extends BaseAdapter {
 function normalizeList(v) {
   if (!v) return [];
   return Array.isArray(v) ? v.map(String) : [String(v)];
+}
+
+function normalizeParams(params) {
+  if (params == null) return [];
+  return Array.isArray(params) ? params : [params];
 }

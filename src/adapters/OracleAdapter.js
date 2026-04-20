@@ -38,6 +38,26 @@ export class OracleAdapter extends BaseAdapter {
     }
   }
 
+  async query(sql, params = []) {
+    const conn = await this.pool.getConnection();
+    try {
+      const res = await conn.execute(String(sql), bindParams(params), { autoCommit: false });
+      return res.rows ?? [];
+    } finally {
+      try { await conn.close(); } catch {}
+    }
+  }
+
+  async exec(sql, params = []) {
+    const conn = await this.pool.getConnection();
+    try {
+      const res = await conn.execute(String(sql), bindParams(params), { autoCommit: true });
+      return { rowsAffected: res.rowsAffected, rows: res.rows ?? [] };
+    } finally {
+      try { await conn.close(); } catch {}
+    }
+  }
+
   _oracleAuth() {
     const c = this.config ?? {};
     const user = c.user ? String(c.user) : '';
@@ -171,4 +191,11 @@ export class OracleAdapter extends BaseAdapter {
 function normalizeList(v) {
   if (!v) return [];
   return Array.isArray(v) ? v.map(String) : [String(v)];
+}
+
+function bindParams(params) {
+  const list = params == null ? [] : (Array.isArray(params) ? params : [params]);
+  const binds = {};
+  for (let i = 0; i < list.length; i++) binds[`p${i + 1}`] = list[i];
+  return binds;
 }

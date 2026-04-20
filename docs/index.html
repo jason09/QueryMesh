@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="QueryMesh documentation: multi-dialect query builder and light ORM for Node.js.">
+  <title>QueryMesh Documentation</title>
+  <style>
+    :root {
+      --ink: #101820;
+      --muted: #5d6974;
+      --paper: #fff9ef;
+      --paper-deep: #f3ead8;
+      --card: rgba(255, 255, 255, 0.82);
+      --line: rgba(16, 24, 32, 0.14);
+      --code: #0d1b1e;
+      --code-line: rgba(255, 255, 255, 0.08);
+      --green: #0b6b53;
+      --green-deep: #073f34;
+      --copper: #bd6f37;
+      --sky: #99c8cf;
+      --shadow: 0 28px 80px rgba(22, 32, 40, 0.16);
+      --radius-lg: 30px;
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --max: 1180px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Trebuchet MS", "Avenir Next", Verdana, sans-serif;
+      background:
+        radial-gradient(circle at 8% 8%, rgba(153, 200, 207, 0.55), transparent 28rem),
+        radial-gradient(circle at 92% 0%, rgba(189, 111, 55, 0.22), transparent 24rem),
+        linear-gradient(135deg, var(--paper), var(--paper-deep));
+      line-height: 1.65;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(16, 24, 32, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(16, 24, 32, 0.04) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent 78%);
+    }
+
+    a {
+      color: var(--green);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+
+    img {
+      display: block;
+      max-width: 100%;
+    }
+
+    .shell {
+      width: min(var(--max), calc(100% - 36px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(20px);
+      background: rgba(255, 249, 239, 0.78);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 76px;
+      gap: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      color: var(--ink);
+    }
+
+    .brand img {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      box-shadow: 0 12px 30px rgba(11, 107, 83, 0.18);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+
+    .hero {
+      position: relative;
+      padding: 86px 0 64px;
+      overflow: hidden;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.02fr) minmax(330px, 0.82fr);
+      align-items: center;
+      gap: 40px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 18px;
+      padding: 8px 12px;
+      border: 1px solid rgba(11, 107, 83, 0.22);
+      border-radius: 999px;
+      color: var(--green-deep);
+      background: rgba(255, 255, 255, 0.54);
+      font-size: 0.82rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--copper);
+      box-shadow: 0 0 0 6px rgba(189, 111, 55, 0.14);
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      letter-spacing: -0.05em;
+      line-height: 0.98;
+    }
+
+    h1 {
+      max-width: 880px;
+      font-size: clamp(3.1rem, 8vw, 7.9rem);
+    }
+
+    h2 {
+      font-size: clamp(2.1rem, 4vw, 4.2rem);
+    }
+
+    h3 {
+      font-size: 1.45rem;
+      letter-spacing: -0.03em;
+    }
+
+    .lead {
+      max-width: 720px;
+      margin: 24px 0 0;
+      color: var(--muted);
+      font-size: clamp(1.08rem, 2vw, 1.32rem);
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-top: 34px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 18px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-weight: 900;
+      box-shadow: 0 16px 35px rgba(11, 107, 83, 0.14);
+    }
+
+    .button.primary {
+      color: #fff;
+      background: linear-gradient(135deg, var(--green), var(--green-deep));
+    }
+
+    .button.secondary {
+      color: var(--green-deep);
+      background: rgba(255, 255, 255, 0.6);
+      border-color: rgba(11, 107, 83, 0.18);
+    }
+
+    .hero-card {
+      position: relative;
+      border-radius: var(--radius-lg);
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.58)),
+        url("../assets/querymesh-banner.png") center / cover;
+      min-height: 420px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.75);
+      animation: rise 700ms ease both;
+    }
+
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      inset: auto 24px 24px;
+      height: 150px;
+      border-radius: 24px;
+      background: rgba(13, 27, 30, 0.78);
+      box-shadow: 0 25px 70px rgba(13, 27, 30, 0.28);
+    }
+
+    .hero-stat {
+      position: absolute;
+      z-index: 2;
+      left: 44px;
+      bottom: 54px;
+      color: #fff;
+    }
+
+    .hero-stat strong {
+      display: block;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 3.4rem;
+      line-height: 1;
+    }
+
+    .hero-stat span {
+      color: rgba(255, 255, 255, 0.72);
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-size: 0.82rem;
+    }
+
+    .section {
+      padding: 72px 0;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(0, 0.75fr) minmax(300px, 0.55fr);
+      gap: 32px;
+      align-items: end;
+      margin-bottom: 26px;
+    }
+
+    .section-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      padding: 24px;
+      border-radius: var(--radius-md);
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.72);
+      box-shadow: 0 20px 55px rgba(16, 24, 32, 0.08);
+    }
+
+    .card p {
+      margin: 12px 0 0;
+      color: var(--muted);
+    }
+
+    .code-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .code-card {
+      overflow: hidden;
+      border-radius: var(--radius-md);
+      background: var(--code);
+      color: #e8f3ef;
+      box-shadow: 0 26px 70px rgba(13, 27, 30, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .code-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 48px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--code-line);
+      color: rgba(232, 243, 239, 0.72);
+      font-size: 0.82rem;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .copy {
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      color: #e8f3ef;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 6px 10px;
+      font: inherit;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    pre {
+      margin: 0;
+      padding: 18px;
+      overflow-x: auto;
+    }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.9rem;
+      line-height: 1.55;
+    }
+
+    .support-table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.74);
+      box-shadow: 0 20px 55px rgba(16, 24, 32, 0.08);
+    }
+
+    .support-table th,
+    .support-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .support-table th {
+      color: var(--green-deep);
+      background: rgba(153, 200, 207, 0.24);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .support-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      color: var(--green-deep);
+      background: rgba(153, 200, 207, 0.32);
+      font-weight: 900;
+      font-size: 0.9rem;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 0.82fr) minmax(0, 1fr);
+      gap: 22px;
+      align-items: start;
+    }
+
+    .note {
+      padding: 18px 20px;
+      border-left: 5px solid var(--copper);
+      background: rgba(255, 255, 255, 0.58);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      color: var(--muted);
+    }
+
+    .footer {
+      padding: 46px 0 72px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+    }
+
+    .footer strong {
+      color: var(--ink);
+    }
+
+    @keyframes rise {
+      from {
+        opacity: 0;
+        transform: translateY(18px) scale(0.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @media (max-width: 900px) {
+      .hero-grid,
+      .section-head,
+      .split,
+      .code-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .cards {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        padding-top: 54px;
+      }
+
+      .hero-card {
+        min-height: 320px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: min(100% - 24px, var(--max));
+      }
+
+      .nav {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 14px 0;
+      }
+
+      .nav-links {
+        gap: 10px;
+      }
+
+      .support-table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell nav" aria-label="Main navigation">
+      <a class="brand" href="#top">
+        <img src="../assets/querymesh-icon.png" alt="QueryMesh icon">
+        <span>QueryMesh</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#install">Install</a>
+        <a href="#connect">Connect</a>
+        <a href="#query">Query</a>
+        <a href="#model">Model</a>
+        <a href="#support">Support</a>
+        <a href="api.html">API Reference</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="shell hero-grid">
+        <div>
+          <p class="eyebrow"><span class="dot"></span> Node.js query builder and light ORM</p>
+          <h1>One fluent API for SQL and MongoDB.</h1>
+          <p class="lead">
+            QueryMesh is a compact multi-dialect query builder for Node.js. It targets PostgreSQL,
+            MySQL, SQL Server, Oracle, MongoDB, and Mongoose-backed connections with a practical,
+            readable builder style.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#install">Start with QueryMesh</a>
+            <a class="button secondary" href="#query">View examples</a>
+          </div>
+          <div class="pill-row" aria-label="Supported dialects">
+            <span class="pill">PostgreSQL</span>
+            <span class="pill">MySQL</span>
+            <span class="pill">SQL Server</span>
+            <span class="pill">Oracle</span>
+            <span class="pill">MongoDB</span>
+          </div>
+        </div>
+        <div class="hero-card" aria-label="QueryMesh visual">
+          <div class="hero-stat">
+            <strong>5</strong>
+            <span>database families</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="install">
+      <div class="shell">
+        <div class="section-head">
+          <h2>Install</h2>
+          <p>Install QueryMesh, then install only the driver packages you actually use.</p>
+        </div>
+        <div class="code-grid">
+          <article class="code-card">
+            <div class="code-head">
+              <span>Core package</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>npm install querymesh</code></pre>
+          </article>
+          <article class="code-card">
+            <div class="code-head">
+              <span>Dialect drivers</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>npm install pg
+npm install mysql
+npm install mssql
+npm install oracledb
+npm install mongodb</code></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="connect">
+      <div class="shell">
+        <div class="section-head">
+          <h2>Connect</h2>
+          <p>The root entry point is <code>QueryMesh.connect(...)</code>. Dialects can use connection strings or structured config where supported.</p>
+        </div>
+        <div class="code-grid">
+          <article class="code-card">
+            <div class="code-head">
+              <span>PostgreSQL</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>import QueryMesh from "querymesh";
+
+const db = await QueryMesh.connect({
+  dialect: "pg",
+  config: {
+    server: "localhost",
+    user: "postgres",
+    password: "postgres",
+    database: "app",
+    port: 5432,
+  },
+});</code></pre>
+          </article>
+          <article class="code-card">
+            <div class="code-head">
+              <span>MongoDB</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>const db = await QueryMesh.connect({
+  dialect: "mongo",
+  config: {
+    connectionString: "mongodb://localhost:27017/app",
+    options: { maxPoolSize: 20 },
+  },
+});</code></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="query">
+      <div class="shell">
+        <div class="section-head">
+          <h2>Query builder</h2>
+          <p>Build readable queries with <code>db.table(name)</code>. Use <code>get()</code> for select results and <code>run()</code> for mutations.</p>
+        </div>
+
+        <div class="cards">
+          <article class="card">
+            <h3>Readable select</h3>
+            <p>Use chainable methods for filters, sorting, offsets, limits, and projections.</p>
+          </article>
+          <article class="card">
+            <h3>Grouped where</h3>
+            <p>Use callback groups when boolean logic needs explicit parentheses.</p>
+          </article>
+          <article class="card">
+            <h3>Raw SQL</h3>
+            <p>Use <code>raw(...)</code> for trusted SQL expressions that should not be quoted or bound as plain values.</p>
+          </article>
+          <article class="card">
+            <h3>Full SQL</h3>
+            <p>Use <code>db.query(...)</code> for SQL rows and <code>db.exec(...)</code> for SQL command metadata.</p>
+          </article>
+          <article class="card">
+            <h3>Aliased joins</h3>
+            <p>Use <code>join...As</code> helpers when the same table or collection is joined more than once.</p>
+          </article>
+        </div>
+
+        <div class="section"></div>
+
+        <div class="code-grid">
+          <article class="code-card">
+            <div class="code-head">
+              <span>Select</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>const users = await db
+  .table("users")
+  .select(["id", "email"])
+  .where("is_active", true)
+  .orderBy("id", "desc")
+  .limit(20)
+  .get();</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head">
+              <span>Grouped where</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>const rows = await db
+  .table("users")
+  .where((q) =&gt; q.where("a", x).where("b", y))
+  .orWhere((q) =&gt; q.where("c", z).orWhere("d", xx))
+  .get();</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head">
+              <span>Raw SQL fragment</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>import { raw } from "querymesh";
+
+const user = await db
+  .table("users")
+  .where(raw("LOWER(email)"), "alice@example.com")
+  .first();
+
+await db
+  .table("posts")
+  .update({ updated_at: raw("CURRENT_TIMESTAMP") })
+  .where("id", postId)
+  .run();</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head">
+              <span>Full SQL query / exec</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>const rows = await db.query(
+  "SELECT id, email FROM users WHERE id = $1",
+  [userId]
+);
+
+const result = await db.exec(
+  "UPDATE users SET active = false WHERE id = $1",
+  [userId]
+);</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head">
+              <span>raw vs query</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>// raw(...) is only a SQL fragment inside a builder
+await db.table("users")
+  .where(raw("LOWER(email)"), email.toLowerCase())
+  .get();
+
+// query(...) executes the whole SQL statement directly
+await db.query(
+  "SELECT * FROM users WHERE LOWER(email) = $1",
+  [email.toLowerCase()]
+);</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head">
+              <span>Aliased joins</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>const rows = await db
+  .table("tickets")
+  .leftJoinOnAs("users", "creator", "tickets.created_by", "creator.id")
+  .leftJoinOnAs("users", "assignee", "tickets.assigned_to", "assignee.id")
+  .select(["tickets.id", "tickets.title", "creator.name", "assignee.name"])
+  .get();</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head">
+              <span>Multiple ON conditions</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>// LEFT JOIN A ON B.X = A.X AND B.Y = A.Y
+const rows = await db
+  .table("B")
+  .leftJoinOn("A", "B.X", "A.X")
+  .andOn("B.Y", "A.Y")
+  .get();</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head">
+              <span>Insert returning</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>const [post] = await db
+  .table("posts")
+  .insert({
+    title: payload.title,
+    body: payload.body,
+    author_id: payload.authorId,
+    public_token: payload.publicToken,
+    created_at: new Date(),
+    updated_at: new Date(),
+  })
+  .returning(["id", "title", "author_id", "public_token", "created_at"])
+  .run();</code></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="mongo">
+      <div class="shell split">
+        <div>
+          <h2>Mongo ObjectId helpers</h2>
+          <p class="lead">
+            QueryMesh keeps Mongo values explicit. Use the ObjectId helpers when filtering by
+            <code>_id</code> or ObjectId reference fields.
+          </p>
+          <p class="note">
+            <code>toObjectId(...)</code> lazy-loads the MongoDB driver. <code>toObjectIdSync(...)</code>
+            does not import anything, so pass the <code>ObjectId</code> constructor yourself.
+          </p>
+        </div>
+        <article class="code-card">
+          <div class="code-head">
+            <span>ObjectId</span>
+            <button class="copy" data-copy>Copy</button>
+          </div>
+          <pre><code>import { ObjectId } from "mongodb";
+import QueryMesh, { toObjectIdSync } from "querymesh";
+
+const id = toObjectIdSync(rawId, ObjectId);
+
+const user = await db
+  .table("users")
+  .where("_id", id)
+  .first();
+
+const asyncId = await QueryMesh.toObjectId(rawId);</code></pre>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="model">
+      <div class="shell">
+        <div class="section-head">
+          <h2>Model layer</h2>
+          <p>Use <code>BaseModel</code> when you want an ORM-style layer over the same query builder.</p>
+        </div>
+        <div class="code-grid">
+          <article class="code-card">
+            <div class="code-head">
+              <span>Define model</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>import { BaseModel } from "querymesh";
+
+class User extends BaseModel {
+  static table = "users";
+  static primaryKey = "id";
+}
+
+const UserModel = db.model(User);</code></pre>
+          </article>
+          <article class="code-card">
+            <div class="code-head">
+              <span>Use model</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>const user = await UserModel.create({
+  email: "alice@example.com",
+  role: "admin",
+});
+
+const first = await UserModel
+  .query()
+  .where("email", "alice@example.com")
+  .first();</code></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="support">
+      <div class="shell">
+        <div class="section-head">
+          <h2>Dialect support</h2>
+          <p>QueryMesh keeps a consistent API, but each database still has its own capabilities.</p>
+        </div>
+        <table class="support-table">
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>SQL dialects</th>
+              <th>MongoDB</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Select, insert, update, delete</td>
+              <td>Yes</td>
+              <td>Yes</td>
+              <td>Mongo compiles to native driver operations.</td>
+            </tr>
+            <tr>
+              <td>Joins</td>
+              <td>Native SQL joins</td>
+              <td><code>$lookup</code> and <code>$unwind</code></td>
+              <td>Alias joins map to <code>$lookup.as</code> for stable output keys.</td>
+            </tr>
+            <tr>
+              <td><code>returning(...)</code></td>
+              <td>PostgreSQL and SQL Server</td>
+              <td>Best effort</td>
+              <td>MySQL and Oracle do not have the same native behavior.</td>
+            </tr>
+            <tr>
+              <td>Views and triggers</td>
+              <td>Supported where the dialect supports them</td>
+              <td>No</td>
+              <td>MongoDB does not support SQL triggers or SQL views in QueryMesh.</td>
+            </tr>
+            <tr>
+              <td>Schema introspection</td>
+              <td>Tables, columns, views, create SQL</td>
+              <td>Collections and sampled structure</td>
+              <td>Use <code>schema().getDesc(...)</code> for normalized descriptions.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section" id="api">
+      <div class="shell">
+        <div class="section-head">
+          <h2>API map</h2>
+          <p>A quick reference for the main modules exposed by QueryMesh. Open the <a href="api.html">full API reference</a> for examples for each module.</p>
+        </div>
+        <div class="cards">
+          <article class="card">
+            <h3>QueryMesh</h3>
+            <p><code>connect</code>, <code>raw</code>, <code>id</code>, <code>toObjectId</code>, <code>toObjectIdSync</code></p>
+          </article>
+          <article class="card">
+            <h3>DB</h3>
+            <p><code>table</code>, <code>query</code>, <code>exec</code>, <code>schema</code>, <code>backup</code>, <code>tools</code>, <code>transaction</code>, <code>model</code>, <code>close</code></p>
+          </article>
+          <article class="card">
+            <h3>QueryBuilder</h3>
+            <p><code>select</code>, <code>where</code>, <code>joinAs</code>, <code>insert</code>, <code>update</code>, <code>delete</code>, <code>returning</code>, <code>get</code>, <code>run</code></p>
+          </article>
+          <article class="card">
+            <h3>SchemaBuilder</h3>
+            <p><code>createTable</code>, <code>alterTable</code>, <code>dropTable</code>, <code>createView</code>, <code>createTrigger</code>, <code>getDesc</code></p>
+          </article>
+          <article class="card">
+            <h3>BaseModel</h3>
+            <p><code>bind</code>, <code>query</code>, <code>find</code>, <code>all</code>, <code>create</code>, <code>save</code>, <code>delete</code></p>
+          </article>
+          <article class="card">
+            <h3>ToolsManager</h3>
+            <p><code>isMongoInstalled</code>, <code>getVersion</code>, <code>ping</code>, <code>getDiagnostics</code>, CLI tooling status helpers</p>
+          </article>
+          <article class="card">
+            <h3>Full reference</h3>
+            <p><a href="api.html">Open docs/api.html</a> for method-by-method explanations and examples.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="shell">
+      <strong>QueryMesh</strong>
+      <p>Multi-dialect query builder and light ORM for Node.js. This page is a static HTML5 documentation entry point.</p>
+    </div>
+  </footer>
+
+  <script>
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const card = button.closest(".code-card");
+        const code = card ? card.querySelector("code") : null;
+        if (!code) return;
+        try {
+          await navigator.clipboard.writeText(code.innerText);
+          const previous = button.innerText;
+          button.innerText = "Copied";
+          setTimeout(() => {
+            button.innerText = previous;
+          }, 1100);
+        } catch {
+          button.innerText = "Select";
+        }
+      });
+    });
+  </script>
+</body>
+</html>

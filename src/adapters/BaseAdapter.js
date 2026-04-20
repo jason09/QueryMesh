@@ -37,6 +37,24 @@ export class BaseAdapter {
   }
 
   /**
+   * Execute raw SQL and return rows. SQL adapters override this.
+   * @param {string} _sql
+   * @param {any[]} [_params]
+   */
+  async query(_sql, _params = []) {
+    throw new Error(`${this.dialect}: raw SQL query is not supported`);
+  }
+
+  /**
+   * Execute raw SQL command and return driver metadata. SQL adapters override this.
+   * @param {string} _sql
+   * @param {any[]} [_params]
+   */
+  async exec(_sql, _params = []) {
+    throw new Error(`${this.dialect}: raw SQL exec is not supported`);
+  }
+
+  /**
    * Run a transaction.
    * @param {(trx: any) => Promise<any>} fn
    */

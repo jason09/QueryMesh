@@ -4,6 +4,8 @@
 
 QueryMesh is a compact **query builder + light ORM** for Node.js with multi-database support.
 
+HTML documentation: [overview](./docs/index.html) and [API reference](./docs/api.html)
+
 ## Supported dialects
 
 - **PostgreSQL** (`pg`)
@@ -147,6 +149,44 @@ Notes:
 - By default the previous adapter is closed; set `closeCurrent: false` to skip that.
 - `importer` and `features` can be passed to override runtime driver loading.
 
+## Mongo ObjectId helper
+
+Use `toObjectId(...)` to safely convert values for Mongo `_id`/reference filters.
+
+```js
+import QueryMesh, { toObjectId } from "querymesh";
+
+const id = await toObjectId("507f1f77bcf86cd799439011");
+const row = await db.table("users").where("_id", id).first();
+```
+
+Sync variant (when you already have `ObjectId` constructor):
+
+```js
+import { ObjectId } from "mongodb";
+import { toObjectIdSync } from "querymesh";
+
+const id = toObjectIdSync("507f1f77bcf86cd799439011", ObjectId);
+```
+
+`whereIn` example:
+
+```js
+const ids = await Promise.all(rawIds.map((v) => toObjectId(v)));
+const rows = await db.table("users").whereIn("_id", ids).get();
+```
+
+Extended JSON is supported:
+
+```js
+const id = await toObjectId({ $oid: "507f1f77bcf86cd799439011" });
+```
+
+Notes:
+- If value is already an ObjectId-like instance, `toObjectId` returns it unchanged.
+- If `mongodb` driver is missing, the helper throws install guidance (`npm install mongodb`).
+- `toObjectIdSync` does not import anything; you must pass `ObjectId` constructor explicitly.
+
 ## Query builder
 
 ### Select
@@ -169,6 +209,82 @@ const rows = await db
   .where("country", "GN")
   .orWhere("role", "admin")
   .get();
+```
+
+### Raw SQL fragments
+
+Use `raw(...)` when you need a SQL expression that QueryMesh should not quote as a column or bind as a normal value.
+
+```js
+import { raw } from "querymesh";
+
+const user = await db
+  .table("users")
+  .where(raw("LOWER(email)"), "alice@example.com")
+  .first();
+
+await db
+  .table("posts")
+  .update({ updated_at: raw("CURRENT_TIMESTAMP") })
+  .where("id", postId)
+  .run();
+```
+
+Notes:
+- Use `raw(...)` sparingly and only with trusted SQL fragments.
+- Keep user input as normal values (`where("email", value)`) so QueryMesh can bind it safely.
+- `raw(...)` is for SQL dialects; it is not a Mongo query expression helper.
+
+### Full SQL query / exec
+
+Use `db.query(...)` when you want to run full SQL and return rows. Use `db.exec(...)` for SQL commands/mutations when you want driver metadata.
+
+```js
+// PostgreSQL placeholders use $1, $2, ...
+const rows = await db.query(
+  "SELECT id, email FROM users WHERE id = $1",
+  [userId]
+);
+
+const result = await db.exec(
+  "UPDATE users SET active = false WHERE id = $1",
+  [userId]
+);
+```
+
+Placeholder style is dialect-specific:
+- PostgreSQL: `$1`, `$2`
+- MySQL: `?`
+- SQL Server: `@p1`, `@p2`
+- Oracle: `:p1`, `:p2`
+
+Notes:
+- `db.query(...)` and `db.exec(...)` are SQL-only.
+- MongoDB rejects raw SQL; use the QueryMesh builder or native Mongo collection APIs.
+
+### `raw(...)` vs `db.query(...)`
+
+Use `raw(...)` inside a QueryMesh builder. Use `db.query(...)` when you want to execute a full SQL string directly.
+
+| Need | Use | Example |
+|---|---|---|
+| SQL expression inside a builder | `raw(...)` | `.where(raw("LOWER(email)"), value)` |
+| SQL value/function inside mutation data | `raw(...)` | `.update({ updated_at: raw("CURRENT_TIMESTAMP") })` |
+| Full SELECT written manually | `db.query(...)` | `db.query("SELECT * FROM users WHERE id = $1", [id])` |
+| Full UPDATE/DELETE/DDL written manually | `db.exec(...)` | `db.exec("UPDATE users SET active = false WHERE id = $1", [id])` |
+
+```js
+// raw(...) is a fragment inside the builder
+await db
+  .table("users")
+  .where(raw("LOWER(email)"), email.toLowerCase())
+  .get();
+
+// query(...) executes the whole SQL statement
+await db.query(
+  "SELECT * FROM users WHERE LOWER(email) = $1",
+  [email.toLowerCase()]
+);
 ```
 
 ### Grouped WHERE (explicit parentheses)
@@ -259,6 +375,32 @@ await db
   .get();
 ```
 
+Multiple `ON` conditions use `andOn(...)` or `orOn(...)` after the join:
+
+```js
+// SQL shape:
+// LEFT JOIN A ON B.X = A.X AND B.Y = A.Y
+await db
+  .table("B")
+  .leftJoinOn("A", "B.X", "A.X")
+  .andOn("B.Y", "A.Y")
+  .get();
+```
+
+Use the explicit operator form when needed:
+
+```js
+await db
+  .table("orders")
+  .leftJoin("shipments", "orders.id", "=", "shipments.order_id")
+  .andOn("orders.created_at", "<=", "shipments.created_at")
+  .get();
+```
+
+Rules for join `ON` fields:
+- For MongoDB, the first field should be from the current table/collection and the second field should be from the joined table/collection.
+- Keep predicates that belong to the join inside `andOn(...)`; moving them to `where(...)` can change `LEFT JOIN` behavior.
+
 Aliased joins are supported (useful when joining the same table multiple times):
 
 ```js
@@ -273,8 +415,10 @@ await db
 `join...As` quick reference:
 - `joinAs(type, table, alias, left, opOrRight, right?)`
 - `joinOnAs(type, table, alias, left, right)` (equality shortcut)
+- `innerJoinOn / leftJoinOn / rightJoinOn`
 - `innerJoinAs / leftJoinAs / rightJoinAs`
 - `innerJoinOnAs / leftJoinOnAs / rightJoinOnAs`
+- `andOn(left, opOrRight, right?) / orOn(left, opOrRight, right?)`
 
 Rules:
 - `alias` must be non-empty.
@@ -735,10 +879,14 @@ const db = await QueryMesh.connect({
 - `connect({ dialect, config, features?, importer? })`
 - `raw(sql, params?)`
 - `id(name)`
+- `toObjectId(value, opts?)`
+- `toObjectIdSync(value, ObjectId)`
 
 ### Module: `DB`
 
 - `table(name)`
+- `query(sql, params?)`
+- `exec(sql, params?)`
 - `schema()`
 - `backup()`
 - `tools()`
@@ -757,7 +905,7 @@ const db = await QueryMesh.connect({
 - Filtering: `where`, `orWhere`, `whereGroup`, `orWhereGroup`, `whereNot`, `orWhereNot`
 - Predicates: `whereIn`, `whereNotIn`, `whereBetween`, `whereNotBetween`, `whereNull`, `whereNotNull`, `whereIs`, `whereIsNot`
 - Quantified: `whereAny`, `whereAll`, `orWhereAny`, `orWhereAll`
-- Join/shape: `join`, `joinAs`, `joinOn`, `joinOnAs`, `innerJoin`, `leftJoin`, `rightJoin`, `innerJoinAs`, `leftJoinAs`, `rightJoinAs`, `innerJoinOnAs`, `leftJoinOnAs`, `rightJoinOnAs`
+- Join/shape: `join`, `joinAs`, `joinOn`, `joinOnAs`, `innerJoin`, `leftJoin`, `rightJoin`, `innerJoinOn`, `leftJoinOn`, `rightJoinOn`, `innerJoinAs`, `leftJoinAs`, `rightJoinAs`, `innerJoinOnAs`, `leftJoinOnAs`, `rightJoinOnAs`, `andOn`, `orOn`
 - Set operations: `union`, `unionAll`, `clearUnions`
 - Mutation: `insert`, `insertSelect`, `update`, `delete`
 - Upsert: `onConflictDoUpdate`, `onDuplicateKeyUpdate`
