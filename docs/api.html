@@ -423,6 +423,7 @@
               <h3><code>connect(options)</code></h3>
               <p class="signature"><code>connect({ dialect, config, features?, importer? }): Promise&lt;DB&gt;</code></p>
               <p>Creates a connected <code>DB</code> instance for <code>pg</code>, <code>mysql</code>, <code>mssql</code>, <code>oracle</code>, <code>mongo</code>, <code>mongodb</code>, or <code>mongoose</code>.</p>
+              <p>For SQL dialects, QueryMesh creates and manages a driver pool internally. For MongoDB it creates a <code>MongoClient</code>, which manages its own internal pool. For Mongoose it reuses the existing Mongo connection.</p>
             </div>
             <div class="code-card">
               <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
@@ -438,6 +439,9 @@ const db = await QueryMesh.connect({
     port: 5432,
   },
 });</code></pre>
+            </div>
+            <div class="method-body">
+              <p>Recommended usage: create one shared <code>DB</code> instance for the app and reuse it. Query builder calls and <code>db.query(...)</code> use the same underlying pool/client. Existing SQL pools are not accepted directly by <code>connect(...)</code> yet, while existing Mongo <code>db</code> / Mongoose connections are supported.</p>
             </div>
           </article>
 
@@ -572,6 +576,11 @@ const id = toObjectIdSync(payload.userId, ObjectId);</code></pre>
                 <td><code>await db.tools().getDiagnostics()</code></td>
               </tr>
               <tr>
+                <td><code>maintenance()</code></td>
+                <td>Returns immediate-execution maintenance helpers for VACUUM, REINDEX, REPAIR, and delegated table maintenance.</td>
+                <td><code>await db.maintenance().vacuumDatabase()</code></td>
+              </tr>
+              <tr>
                 <td><code>switchDatabase(name, opts?)</code></td>
                 <td>Switches the current DB instance to another database.</td>
                 <td><code>await db.switchDatabase("app_b")</code></td>
@@ -593,7 +602,7 @@ const id = toObjectIdSync(payload.userId, ObjectId);</code></pre>
               </tr>
               <tr>
                 <td><code>transaction(fn)</code></td>
-                <td>Runs work inside a transaction/session where supported.</td>
+                <td>Runs work inside a transaction/session where supported. SQL dialects borrow one dedicated connection from the pool; MongoDB starts a session when available.</td>
                 <td><code>await db.transaction(async (trx) =&gt; trx.table("logs").insert(row).run())</code></td>
               </tr>
               <tr>
@@ -616,6 +625,9 @@ const id = toObjectIdSync(payload.userId, ObjectId);</code></pre>
   await trx.table("accounts").update({ balance: 90 }).where("id", 1).run();
   await trx.table("accounts").update({ balance: 110 }).where("id", 2).run();
 });</code></pre>
+        </div>
+        <div class="note">
+          QueryMesh releases the borrowed transaction connection/session after commit or rollback. <code>await db.close()</code> closes the underlying SQL pool or Mongo client when you shut the app down.
         </div>
       </div>
     </section>
@@ -829,7 +841,7 @@ const first = await db.table("users").where("id", 1).first();</code></pre>
           <article class="method">
             <div class="method-body">
               <h3>Tables</h3>
-              <p class="signature"><code>createTable, alterTable, dropTable, renameTable</code></p>
+              <p class="signature"><code>createTable, alterTable, dropTable, renameTable, truncateTable</code></p>
               <p>Create and modify SQL tables. Mongo currently maps <code>dropTable</code> to collection drop.</p>
             </div>
             <div class="code-card">
@@ -840,6 +852,32 @@ const first = await db.table("users").where("id", 1).first();</code></pre>
   t.text("body");
   t.timestamps();
 }).exec();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Maintenance</h3>
+              <p class="signature"><code>truncateTable, analyzeTable, optimizeTable, vacuumTable, vacuumDatabase, reindexTable, repairTable</code></p>
+              <p>Best-effort maintenance helpers. <code>truncateTable</code> is the most universal. <code>analyzeTable</code> and <code>optimizeTable</code> map to different native commands per SQL dialect. Some helpers are dialect-specific by design.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>await db.schema().truncateTable("logs").exec();
+await db.schema().analyzeTable("users").exec();
+await db.schema().optimizeTable("users").exec();
+await db.schema().vacuumTable("users", { analyze: true }).exec();
+await db.schema().reindexTable("users").exec();</code></pre>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Immediate helper</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>await db.maintenance().vacuumDatabase({ verbose: true });
+await db.maintenance().reindexTable("users");
+await db.maintenance().repairTable("legacy_cache");</code></pre>
+            </div>
+            <div class="method-body">
+              <p>Mappings: PostgreSQL uses <code>TRUNCATE</code>, <code>ANALYZE</code>, <code>VACUUM</code>, and <code>REINDEX</code>; MySQL uses <code>TRUNCATE</code>, <code>ANALYZE TABLE</code>, <code>OPTIMIZE TABLE</code>, and <code>REPAIR TABLE</code>; SQL Server uses <code>TRUNCATE</code>, <code>UPDATE STATISTICS</code>, and <code>ALTER INDEX</code>. MongoDB maps <code>truncateTable</code> to <code>deleteMany({})</code>. Oracle supports <code>truncateTable</code> and <code>analyzeTable</code> but not <code>optimizeTable</code>, <code>reindexTable</code>, or <code>repairTable</code>.</p>
+              <p>PostgreSQL <code>vacuumTable</code> and <code>vacuumDatabase</code> cannot run inside a transaction block.</p>
             </div>
           </article>
 

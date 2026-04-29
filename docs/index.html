@@ -598,6 +598,9 @@ const db = await QueryMesh.connect({
 });</code></pre>
           </article>
         </div>
+        <div class="note">
+          <strong>Pool behavior:</strong> Create one shared <code>DB</code> instance and reuse it. PostgreSQL, MySQL, SQL Server, and Oracle use driver pools internally. MongoDB uses a single <code>MongoClient</code> with its own internal pool. Mongoose reuses the existing Mongo connection. Query builder calls and <code>db.query(...)</code> use the same pool/client, and <code>db.transaction(...)</code> borrows a dedicated connection/session until commit or rollback. <code>db.close()</code> closes the underlying pool/client.
+        </div>
       </div>
     </section>
 
@@ -881,6 +884,12 @@ const first = await UserModel
               <td>MongoDB does not support SQL triggers or SQL views in QueryMesh.</td>
             </tr>
             <tr>
+              <td>Maintenance helpers</td>
+              <td><code>truncateTable</code> on all SQL dialects; <code>analyzeTable</code> on all SQL dialects; <code>optimizeTable</code> on pg/mysql/mssql; <code>vacuumTable</code> on pg; <code>reindexTable</code> on pg/mssql; <code>repairTable</code> on mysql</td>
+              <td><code>truncateTable</code> only</td>
+              <td>Mongo <code>truncateTable</code> deletes all documents. <code>optimizeTable</code> is a best-effort SQL mapping, not identical behavior across dialects. PostgreSQL <code>VACUUM</code> helpers cannot run inside a transaction block.</td>
+            </tr>
+            <tr>
               <td>Schema introspection</td>
               <td>Tables, columns, views, create SQL</td>
               <td>Collections and sampled structure</td>
@@ -904,7 +913,7 @@ const first = await UserModel
           </article>
           <article class="card">
             <h3>DB</h3>
-            <p><code>table</code>, <code>query</code>, <code>exec</code>, <code>schema</code>, <code>backup</code>, <code>tools</code>, <code>transaction</code>, <code>model</code>, <code>close</code></p>
+            <p><code>table</code>, <code>query</code>, <code>schema</code>, <code>maintenance</code>, <code>backup</code>, <code>tools</code>, <code>transaction</code>, <code>model</code>, <code>close</code></p>
           </article>
           <article class="card">
             <h3>QueryBuilder</h3>
@@ -912,7 +921,7 @@ const first = await UserModel
           </article>
           <article class="card">
             <h3>SchemaBuilder</h3>
-            <p><code>createTable</code>, <code>alterTable</code>, <code>dropTable</code>, <code>createView</code>, <code>createTrigger</code>, <code>getDesc</code></p>
+            <p><code>createTable</code>, <code>dropTable</code>, <code>truncateTable</code>, <code>vacuumTable</code>, <code>reindexTable</code>, <code>repairTable</code>, <code>getDesc</code></p>
           </article>
           <article class="card">
             <h3>BaseModel</h3>

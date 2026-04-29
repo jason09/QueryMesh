@@ -29,15 +29,24 @@ HTML documentation: [overview](./docs/index.html) and [API reference](./docs/api
 | `schema().createView()/dropView()` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Triggers (`createTrigger/dropTrigger`) | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Schema DDL (`createTable/alterTable/dropTable`) | ✅ | ✅ | ✅ | ✅ | ⚠️ (`dropTable` only) |
+| Maintenance (`truncateTable`) | ✅ | ✅ | ✅ | ✅ | ✅ (`deleteMany({})`) |
+| Maintenance (`analyzeTable`) | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Maintenance (`optimizeTable`) | ✅ (`VACUUM`) | ✅ | ✅ | ❌ | ❌ |
+| Maintenance (`vacuumTable` / `vacuumDatabase`) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Maintenance (`reindexTable`) | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Maintenance (`repairTable`) | ❌ | ✅ | ❌ | ❌ | ❌ |
 
 Mongo notes:
 - Mongo joins use `$lookup`; comparison join operators are supported (`=`, `!=`, `<>`, `>`, `>=`, `<`, `<=`).
 - Mongo `UNION/UNION ALL` supports QueryBuilder sources (raw/string SQL sources are not supported).
 - Mongo `insertSelect` supports QueryBuilder source with explicit selected columns.
 - Mongo `schema().dropTable(name)` drops a collection; `createTable/alterTable` remain SQL-only.
+- Mongo `schema().truncateTable(name)` deletes all documents with `deleteMany({})`.
 - Mongo triggers are not supported by QueryMesh (`createTrigger/dropTrigger` are SQL dialect features).
 - Right/full join semantics are not fully equivalent to SQL joins in Mongo pipelines.
 - For Mongo schema APIs, use `showTables`, `showDatabases`, and `getDesc` for introspection.
+- `optimizeTable` is a best-effort mapping, not identical SQL across dialects: pg uses `VACUUM`, mysql uses `OPTIMIZE TABLE`, mssql uses `ALTER INDEX`.
+- PostgreSQL `VACUUM` helpers cannot run inside a transaction block.
 
 ## Install
 
@@ -109,6 +118,17 @@ const db = await QueryMesh.connect({
 //   config: { mongoose }, // or { connection: mongoose.connection }
 // });
 ```
+
+### Pool and connection behavior
+
+- Create one shared `DB` instance with `QueryMesh.connect(...)` and reuse it. Do not open a new connection per request.
+- `pg`, `mysql`, `mssql`, and `oracle` create and manage a driver pool internally.
+- `mongo` creates a `MongoClient`; MongoDB pooling is handled by the client internally.
+- `mongoose` reuses the existing Mongoose/Mongo connection instead of creating a second Mongo client.
+- Query builder calls (`db.table(...).get()/run()`) and raw SQL calls (`db.query(...)`) use the same underlying pool/client.
+- `db.transaction(...)` checks out a dedicated connection/session for the transaction, then releases it after commit or rollback.
+- `db.close()` closes the underlying pool/client.
+- Existing SQL pools are not accepted directly by `connect(...)` yet. Existing Mongo `db` / Mongoose connections are supported.
 
 ### Switch database
 
@@ -587,6 +607,11 @@ await db.transaction(async (trx) => {
 });
 ```
 
+Transaction behavior:
+- SQL dialects borrow one dedicated connection from the pool for the duration of the transaction.
+- MongoDB starts a session when the underlying `MongoClient` supports it.
+- After commit or rollback, QueryMesh releases the borrowed connection/session back to the pool/client.
+
 MongoDB uses sessions when available.
 
 MongoDB transaction notes:
@@ -696,6 +721,56 @@ await db.schema().alterTable("users", (t) => {
 await db.schema().renameTable("users", "app_users").exec();
 await db.schema().dropTable("app_users", { ifExists: true, cascade: true }).exec();
 ```
+
+### Maintenance utilities
+
+```js
+await db.schema().truncateTable("logs").exec();
+
+await db.schema().analyzeTable("users").exec();
+
+await db.schema().optimizeTable("users").exec();
+
+await db.schema().vacuumTable("users", { analyze: true }).exec();
+
+await db.schema().reindexTable("users").exec();
+
+// mysql only
+await db.schema().repairTable("users").exec();
+```
+
+If you prefer immediate execution without chaining `.exec()`, use `db.maintenance()`:
+
+```js
+await db.maintenance().vacuumDatabase({ verbose: true });
+await db.maintenance().reindexTable("users");
+```
+
+Notes:
+- `truncateTable`:
+  - SQL dialects compile to `TRUNCATE TABLE`
+  - MongoDB deletes all documents in the collection with `deleteMany({})`
+- `analyzeTable`:
+  - pg: `ANALYZE`
+  - mysql: `ANALYZE TABLE`
+  - mssql: `UPDATE STATISTICS`
+  - oracle: `DBMS_STATS.GATHER_TABLE_STATS`
+- `optimizeTable` is best-effort and not identical across dialects:
+  - pg: `VACUUM (ANALYZE)` by default, or `VACUUM` with `{ analyze: false }`
+  - mysql: `OPTIMIZE TABLE`
+  - mssql: `ALTER INDEX ALL ... REORGANIZE` or `REBUILD` with `{ rebuild: true }`
+  - oracle / mongo: not supported
+- `vacuumTable` / `vacuumDatabase`:
+  - PostgreSQL only
+  - useful when you want explicit `VACUUM` instead of the broader `optimizeTable` mapping
+  - cannot run inside a transaction block
+- `reindexTable`:
+  - pg: `REINDEX TABLE` with optional `{ concurrently: true }`
+  - mssql: `ALTER INDEX ALL ... REBUILD`
+- `repairTable`:
+  - mysql only
+  - maps to `REPAIR TABLE`
+  - mostly useful for storage engines that support table repair directly
 
 ### Views
 
@@ -897,6 +972,7 @@ const db = await QueryMesh.connect({
 - `schema()`
 - `backup()`
 - `tools()`
+- `maintenance()`
 - `switchDatabase(name, opts?)`
 - `useDatabase(name, opts?)`
 - `switchDialect(dialect, config, opts?)`
@@ -922,6 +998,7 @@ const db = await QueryMesh.connect({
 ### Module: `SchemaBuilder`
 
 - DDL: `createTable`, `alterTable`, `dropTable`, `renameTable`
+- Maintenance: `truncateTable`, `analyzeTable`, `optimizeTable`, `vacuumTable`, `vacuumDatabase`, `reindexTable`, `repairTable`
 - Databases: `createDatabase`, `dropDatabase`, `showDatabases`
 - PostgreSQL schema: `createSchema`, `dropSchema`
 - Views: `createView`, `dropView`
@@ -929,6 +1006,16 @@ const db = await QueryMesh.connect({
 - Introspection: `showTables`, `showDatabases`, `getDesc(target?, opts?)`
 - `getDesc` opts: `schema`, `deep`, `strict`, `includeViews`, `includeDatabases`, `sampleSize`, `includeCreateSql`
 - Execute: `exec`
+
+### Module: `MaintenanceManager`
+
+- `truncateTable(name, opts?)`
+- `analyzeTable(name, opts?)`
+- `optimizeTable(name, opts?)`
+- `vacuumTable(name, opts?)`
+- `vacuumDatabase(opts?)`
+- `reindexTable(name, opts?)`
+- `repairTable(name, opts?)`
 
 ### Module: `BaseModel`
 

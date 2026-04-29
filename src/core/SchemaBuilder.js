@@ -1,4 +1,4 @@
-import { quoteIdent } from '../utils/identifiers.js';
+import { assertIdent, quoteIdent, splitIdent } from '../utils/identifiers.js';
 
 class ColumnDef {
   constructor(dialect, name, type, table) {
@@ -729,6 +729,195 @@ _timestampTriggerSql(table, pkCols) {
     }
 
     this._sql = `DROP TABLE ${quoteIdent(d, name)}`;
+    return this;
+  }
+
+  /**
+   * Truncate a table or collection.
+   * - SQL: TRUNCATE TABLE
+   * - Mongo: deleteMany({})
+   * @param {string} name
+   * @param {{restartIdentity?: boolean, cascade?: boolean}} [opts]
+   */
+  truncateTable(name, opts = {}) {
+    const d = this.dialect;
+    const tableName = String(name);
+    const restartIdentity = opts.restartIdentity === true;
+    const cascade = opts.cascade === true;
+
+    if (d === 'mongo') {
+      this._sql = null;
+      this._postSql = [];
+      this._meta = { op: 'truncateCollection', name: tableName };
+      return this;
+    }
+
+    if (d === 'pg') {
+      this._sql = `TRUNCATE TABLE ${quoteIdent(d, tableName)}${restartIdentity ? ' RESTART IDENTITY' : ''}${cascade ? ' CASCADE' : ''}`;
+      return this;
+    }
+
+    this._sql = `TRUNCATE TABLE ${quoteIdent(d, tableName)}`;
+    return this;
+  }
+
+  /**
+   * Update table statistics / analysis metadata.
+   * @param {string} name
+   * @param {{verbose?: boolean, fullscan?: boolean, schema?: string, cascade?: boolean}} [opts]
+   */
+  analyzeTable(name, opts = {}) {
+    const d = this.dialect;
+    const tableName = String(name);
+
+    if (d === 'mongo') throw new Error('mongo: analyzeTable is not supported');
+
+    if (d === 'pg') {
+      this._sql = `ANALYZE${opts.verbose === true ? ' VERBOSE' : ''} ${quoteIdent(d, tableName)}`;
+      return this;
+    }
+
+    if (d === 'mysql') {
+      this._sql = `ANALYZE TABLE ${quoteIdent(d, tableName)}`;
+      return this;
+    }
+
+    if (d === 'mssql') {
+      this._sql = `UPDATE STATISTICS ${quoteIdent(d, tableName)}${opts.fullscan === true ? ' WITH FULLSCAN' : ''}`;
+      return this;
+    }
+
+    if (d === 'oracle') {
+      const { schema, table } = splitObjectName(tableName, opts.schema);
+      const ownerExpr = schema ? `'${schema.replace(/'/g, "''")}'` : 'USER';
+      const tableExpr = `'${table.replace(/'/g, "''")}'`;
+      const cascadeExpr = opts.cascade === false ? 'FALSE' : 'TRUE';
+      this._sql = `BEGIN DBMS_STATS.GATHER_TABLE_STATS(ownname => ${ownerExpr}, tabname => ${tableExpr}, cascade => ${cascadeExpr}); END;`;
+      return this;
+    }
+
+    throw new Error(`${d}: analyzeTable is not supported`);
+  }
+
+  /**
+   * Best-effort table maintenance / optimization.
+   * - pg: VACUUM / VACUUM (ANALYZE)
+   * - mysql: OPTIMIZE TABLE
+   * - mssql: ALTER INDEX ALL ... REORGANIZE/REBUILD
+   * @param {string} name
+   * @param {{analyze?: boolean, rebuild?: boolean}} [opts]
+   */
+  optimizeTable(name, opts = {}) {
+    const d = this.dialect;
+    const tableName = String(name);
+
+    if (d === 'pg') {
+      this._sql = opts.analyze === false
+        ? `VACUUM ${quoteIdent(d, tableName)}`
+        : `VACUUM (ANALYZE) ${quoteIdent(d, tableName)}`;
+      return this;
+    }
+
+    if (d === 'mysql') {
+      this._sql = `OPTIMIZE TABLE ${quoteIdent(d, tableName)}`;
+      return this;
+    }
+
+    if (d === 'mssql') {
+      this._sql = `ALTER INDEX ALL ON ${quoteIdent(d, tableName)} ${opts.rebuild === true ? 'REBUILD' : 'REORGANIZE'}`;
+      return this;
+    }
+
+    if (d === 'oracle') {
+      throw new Error('oracle: optimizeTable is not supported; use dialect-specific DBA tools');
+    }
+
+    if (d === 'mongo') {
+      throw new Error('mongo: optimizeTable is not supported');
+    }
+
+    throw new Error(`${d}: optimizeTable is not supported`);
+  }
+
+  /**
+   * PostgreSQL-only VACUUM for a specific table.
+   * @param {string} name
+   * @param {{analyze?: boolean, full?: boolean, freeze?: boolean, verbose?: boolean}} [opts]
+   */
+  vacuumTable(name, opts = {}) {
+    if (this.dialect !== 'pg') {
+      throw new Error(`${this.dialect}: vacuumTable is only supported on PostgreSQL`);
+    }
+    const tableName = String(name);
+    const options = buildVacuumOptions(opts);
+    this._sql = options.length
+      ? `VACUUM (${options.join(', ')}) ${quoteIdent('pg', tableName)}`
+      : `VACUUM ${quoteIdent('pg', tableName)}`;
+    return this;
+  }
+
+  /**
+   * PostgreSQL-only VACUUM for the current database.
+   * @param {{analyze?: boolean, full?: boolean, freeze?: boolean, verbose?: boolean}} [opts]
+   */
+  vacuumDatabase(opts = {}) {
+    if (this.dialect !== 'pg') {
+      throw new Error(`${this.dialect}: vacuumDatabase is only supported on PostgreSQL`);
+    }
+    const options = buildVacuumOptions(opts);
+    this._sql = options.length
+      ? `VACUUM (${options.join(', ')})`
+      : 'VACUUM';
+    return this;
+  }
+
+  /**
+   * Reindex a table.
+   * - PostgreSQL: REINDEX TABLE [CONCURRENTLY]
+   * - SQL Server: ALTER INDEX ALL ... REBUILD
+   * @param {string} name
+   * @param {{concurrently?: boolean, online?: boolean, fillfactor?: number}} [opts]
+   */
+  reindexTable(name, opts = {}) {
+    const d = this.dialect;
+    const tableName = String(name);
+
+    if (d === 'pg') {
+      this._sql = `REINDEX TABLE${opts.concurrently === true ? ' CONCURRENTLY' : ''} ${quoteIdent(d, tableName)}`;
+      return this;
+    }
+
+    if (d === 'mssql') {
+      const withParts = [];
+      if (opts.online === true) withParts.push('ONLINE = ON');
+      if (Number.isInteger(opts.fillfactor) && opts.fillfactor >= 1 && opts.fillfactor <= 100) {
+        withParts.push(`FILLFACTOR = ${opts.fillfactor}`);
+      }
+      const withClause = withParts.length ? ` WITH (${withParts.join(', ')})` : '';
+      this._sql = `ALTER INDEX ALL ON ${quoteIdent(d, tableName)} REBUILD${withClause}`;
+      return this;
+    }
+
+    throw new Error(`${d}: reindexTable is not supported`);
+  }
+
+  /**
+   * MySQL-only REPAIR TABLE helper.
+   * @param {string} name
+   * @param {{quick?: boolean, extended?: boolean, useFrm?: boolean, local?: boolean}} [opts]
+   */
+  repairTable(name, opts = {}) {
+    if (this.dialect !== 'mysql') {
+      throw new Error(`${this.dialect}: repairTable is only supported on MySQL`);
+    }
+    const tableName = String(name);
+    const parts = ['REPAIR'];
+    if (opts.local === true) parts.push('LOCAL');
+    parts.push('TABLE', quoteIdent('mysql', tableName));
+    if (opts.quick === true) parts.push('QUICK');
+    if (opts.extended === true) parts.push('EXTENDED');
+    if (opts.useFrm === true) parts.push('USE_FRM');
+    this._sql = parts.join(' ');
     return this;
   }
 
@@ -1558,6 +1747,23 @@ _timestampTriggerSql(table, pkCols) {
       }
     }
 
+    if (this._meta?.op === 'truncateCollection' && this.dialect === 'mongo') {
+      const collectionName = String(this._meta.name ?? '').trim();
+      if (!collectionName) throw new Error('mongo: truncateTable(name) requires a collection name');
+
+      const col = this.adapter?.db?.collection?.(collectionName);
+      if (!col || typeof col.deleteMany !== 'function') {
+        throw new Error('mongo: collection().deleteMany() is not available on this adapter');
+      }
+
+      const out = await col.deleteMany({});
+      return {
+        truncated: true,
+        collection: collectionName,
+        deletedCount: Number(out?.deletedCount ?? 0),
+      };
+    }
+
     const hasMain = typeof this._sql === 'string' && this._sql.trim().length > 0;
     const hasPost = Array.isArray(this._postSql) && this._postSql.length > 0;
     if (!hasMain && !hasPost) throw new Error('No schema statement');
@@ -2003,6 +2209,26 @@ function looksLikeSqlExpression(s) {
   if (/^[A-Z_][A-Z0-9_]*$/i.test(s)) return true;
   if (/^[A-Z_][A-Z0-9_]*\s*\(/i.test(s)) return true;
   return false;
+}
+
+function splitObjectName(name, schemaOverride = null) {
+  assertIdent(name);
+  if (schemaOverride != null) assertIdent(schemaOverride);
+  const parts = splitIdent(name);
+  if (!parts.length) throw new Error(`Invalid identifier: "${name}"`);
+  return {
+    schema: schemaOverride ?? (parts.length > 1 ? parts[0] : null),
+    table: parts[parts.length - 1],
+  };
+}
+
+function buildVacuumOptions(opts = {}) {
+  const options = [];
+  if (opts.full === true) options.push('FULL');
+  if (opts.freeze === true) options.push('FREEZE');
+  if (opts.verbose === true) options.push('VERBOSE');
+  if (opts.analyze === true) options.push('ANALYZE');
+  return options;
 }
 
 function quoteStringLiteral(s) {

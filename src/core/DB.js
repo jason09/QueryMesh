@@ -5,6 +5,7 @@ import { SchemaBuilder } from './SchemaBuilder.js';
 import { quoteIdent } from '../utils/identifiers.js';
 import { BackupManager } from '../backup/BackupManager.js';
 import { ToolsManager } from '../tools/ToolsManager.js';
+import { MaintenanceManager } from '../maintenance/MaintenanceManager.js';
 
 /**
  * DB is the main entry point.
@@ -84,6 +85,11 @@ export class DB {
    * Runtime diagnostics/tooling manager.
    */
   tools() { return new ToolsManager(this); }
+
+  /**
+   * Maintenance/admin helper for VACUUM, REINDEX, REPAIR, etc.
+   */
+  maintenance() { return new MaintenanceManager(this); }
 
   /**
    * Run a transaction.

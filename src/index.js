@@ -9,6 +9,7 @@ import { OracleAdapter } from './adapters/OracleAdapter.js';
 import { MongoAdapter } from './adapters/MongoAdapter.js';
 import { SQueryError } from './utils/errors.js';
 import { ToolsManager } from './tools/ToolsManager.js';
+import { MaintenanceManager } from './maintenance/MaintenanceManager.js';
 
 /**
  * @typedef {'pg'|'mysql'|'mssql'|'oracle'|'mongo'|'mongodb'|'mongoose'} Dialect
@@ -337,6 +338,7 @@ export { BaseModel };
 export { raw, id };
 export { SQueryError };
 export { ToolsManager };
+export { MaintenanceManager };
 
 export default {
   connect,
@@ -348,4 +350,5 @@ export default {
   toObjectIdSync,
   SQueryError,
   ToolsManager,
+  MaintenanceManager,
 };

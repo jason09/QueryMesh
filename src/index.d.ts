@@ -305,11 +305,65 @@ export interface GetDescOptions {
   table?: string;
 }
 
+export interface TruncateTableOptions {
+  restartIdentity?: boolean;
+  cascade?: boolean;
+}
+
+export interface AnalyzeTableOptions {
+  verbose?: boolean;
+  fullscan?: boolean;
+  schema?: string;
+  cascade?: boolean;
+}
+
+export interface OptimizeTableOptions {
+  analyze?: boolean;
+  rebuild?: boolean;
+}
+
+export interface VacuumOptions {
+  analyze?: boolean;
+  full?: boolean;
+  freeze?: boolean;
+  verbose?: boolean;
+}
+
+export interface ReindexTableOptions {
+  concurrently?: boolean;
+  online?: boolean;
+  fillfactor?: number;
+}
+
+export interface RepairTableOptions {
+  quick?: boolean;
+  extended?: boolean;
+  useFrm?: boolean;
+  local?: boolean;
+}
+
 export class SchemaBuilder {
+  truncateTable(name: string, opts?: TruncateTableOptions): this;
+  analyzeTable(name: string, opts?: AnalyzeTableOptions): this;
+  optimizeTable(name: string, opts?: OptimizeTableOptions): this;
+  vacuumTable(name: string, opts?: VacuumOptions): this;
+  vacuumDatabase(opts?: VacuumOptions): this;
+  reindexTable(name: string, opts?: ReindexTableOptions): this;
+  repairTable(name: string, opts?: RepairTableOptions): this;
   showTables(opts?: { schema?: string }): Promise<string[]>;
   showDatabases(): Promise<string[]>;
   getDesc(target?: any, opts?: GetDescOptions | any): Promise<TableDesc | DatabaseDesc | any>;
   exec(): Promise<any>;
+}
+
+export class MaintenanceManager {
+  truncateTable(name: string, opts?: TruncateTableOptions): Promise<any>;
+  analyzeTable(name: string, opts?: AnalyzeTableOptions): Promise<any>;
+  optimizeTable(name: string, opts?: OptimizeTableOptions): Promise<any>;
+  vacuumTable(name: string, opts?: VacuumOptions): Promise<any>;
+  vacuumDatabase(opts?: VacuumOptions): Promise<any>;
+  reindexTable(name: string, opts?: ReindexTableOptions): Promise<any>;
+  repairTable(name: string, opts?: RepairTableOptions): Promise<any>;
 }
 
 export class DB {
@@ -324,6 +378,7 @@ export class DB {
   schema(): any;
   backup(): BackupManager;
   tools(): ToolsManager;
+  maintenance(): MaintenanceManager;
   switchDatabase(name: string, opts?: SwitchDatabaseOptions): Promise<DB>;
   useDatabase(name: string, opts?: SwitchDatabaseOptions): Promise<DB>;
   switchDialect(dialect: Dialect, config: any, opts?: SwitchDialectOptions): Promise<DB>;
