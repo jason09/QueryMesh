@@ -103,6 +103,35 @@ test("getDesc(table) can include CREATE SQL script", async () => {
   assert.match(desc.createSql || "", /CONSTRAINT "audit_auditlog_pkey" PRIMARY KEY \(id\)/);
 });
 
+test("getDesc(table) can include indexes and triggers", async () => {
+  const adapter = {
+    dialect: "pg",
+    placeholder(i) { return `$${i}`; },
+    async execute(qb) {
+      const { sql } = qb.compile();
+      if (/information_schema\.columns/i.test(sql)) {
+        return [{ column_name: "id", data_type: "integer", is_nullable: "NO", ordinal_position: 1 }];
+      }
+      if (/pg_indexes/i.test(sql)) {
+        return [{ name: "users_pkey" }, { name: "users_email_idx" }];
+      }
+      if (/information_schema\.triggers/i.test(sql)) {
+        return [{ name: "users_touch_updated_at" }];
+      }
+      return [];
+    },
+  };
+
+  const desc = await new SchemaBuilder(adapter).getDesc("users", {
+    schema: "public",
+    includeIndexes: true,
+    includeTriggers: true,
+  });
+
+  assert.deepEqual(desc.indexes, ["users_pkey", "users_email_idx"]);
+  assert.deepEqual(desc.triggers, ["users_touch_updated_at"]);
+});
+
 test("getDesc(database) returns SQL database structure", async () => {
   const adapter = {
     dialect: "mysql",
@@ -122,6 +151,39 @@ test("getDesc(database) returns SQL database structure", async () => {
   assert.equal(desc.name, "appdb");
   assert.deepEqual(desc.tables, ["users", "orders"]);
   assert.deepEqual(desc.views, ["active_users"]);
+});
+
+test("getDesc(database) auto-builds table descriptions for indexes/triggers when requested", async () => {
+  const adapter = {
+    dialect: "pg",
+    placeholder(i) { return `$${i}`; },
+    async execute(qb) {
+      const { sql, params } = qb.compile();
+      if (/current_database\(\)/i.test(sql)) return [{ name: "appdb", schema: "public" }];
+      if (/pg_catalog\.pg_tables/i.test(sql)) return [{ name: "users" }];
+      if (/information_schema\.views/i.test(sql)) return [];
+      if (/information_schema\.columns/i.test(sql)) {
+        return [{ column_name: "id", data_type: "integer", is_nullable: "NO", ordinal_position: 1 }];
+      }
+      if (/pg_indexes/i.test(sql)) {
+        assert.deepEqual(params, ["public", "users"]);
+        return [{ name: "users_pkey" }];
+      }
+      if (/information_schema\.triggers/i.test(sql)) {
+        return [{ name: "users_touch_updated_at" }];
+      }
+      return [];
+    },
+  };
+
+  const desc = await new SchemaBuilder(adapter).getDesc("database", {
+    includeIndexes: true,
+    includeTriggers: true,
+  });
+
+  assert.ok(desc.tableDescriptions);
+  assert.deepEqual(desc.tableDescriptions.users.indexes, ["users_pkey"]);
+  assert.deepEqual(desc.tableDescriptions.users.triggers, ["users_touch_updated_at"]);
 });
 
 test("getDesc(database) can include CREATE SQL script", async () => {
@@ -254,6 +316,10 @@ test("getDesc strict mode normalizes shape across dialects", async () => {
   const pgTable = await pgSchema.getDesc("users", { strict: true, schema: "public" });
   const mongoTable = await mongoSchema.getDesc("users", { strict: true });
   assert.deepEqual(Object.keys(pgTable), Object.keys(mongoTable));
+  assert.deepEqual(pgTable.indexes, []);
+  assert.deepEqual(pgTable.triggers, []);
+  assert.deepEqual(mongoTable.indexes, []);
+  assert.deepEqual(mongoTable.triggers, []);
   assert.equal(pgTable.sampleSize, null);
   assert.equal(pgTable.sampledDocuments, null);
   assert.equal(mongoTable.sampleSize, 20);

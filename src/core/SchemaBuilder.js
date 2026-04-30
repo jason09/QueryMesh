@@ -973,6 +973,50 @@ _timestampTriggerSql(table, pkCols) {
   }
 
   /**
+   * Create a PostgreSQL type.
+   *
+   * Supported definition shapes:
+   * - string: "AS ENUM ('a', 'b')" or "ENUM ('a', 'b')"
+   * - string[]: enum values
+   * - { kind: 'enum', values: [...] }
+   * - { kind: 'composite', fields: { city: 'text', zip: 'text' } }
+   * - { composite: ['city text', 'zip text'] }
+   *
+   * @param {string} name
+   * @param {any} definition
+   * @param {{ifNotExists?: boolean}} [opts]
+   */
+  createType(name, definition, opts = {}) {
+    if (this.dialect !== 'pg') throw new Error(`${this.dialect}: createType is only supported on PostgreSQL`);
+    const typeName = String(name ?? '').trim();
+    if (!typeName) throw new Error('createType requires a type name');
+
+    const defSql = formatTypeDefinition(definition);
+    if (!defSql) throw new Error('createType requires a valid type definition');
+
+    const stmt = `CREATE TYPE ${quoteIdent('pg', typeName)} ${defSql}`;
+    this._sql = opts.ifNotExists === true
+      ? `DO $$ BEGIN ${stmt}; EXCEPTION WHEN duplicate_object THEN NULL; END $$;`
+      : stmt;
+    return this;
+  }
+
+  /**
+   * Drop a PostgreSQL type.
+   * @param {string} name
+   * @param {{ifExists?: boolean, cascade?: boolean}} [opts]
+   */
+  dropType(name, opts = {}) {
+    if (this.dialect !== 'pg') throw new Error(`${this.dialect}: dropType is only supported on PostgreSQL`);
+    const typeName = String(name ?? '').trim();
+    if (!typeName) throw new Error('dropType requires a type name');
+    const ifExists = opts.ifExists === true;
+    const cascade = opts.cascade === true;
+    this._sql = `DROP TYPE${ifExists ? ' IF EXISTS' : ''} ${quoteIdent('pg', typeName)}${cascade ? ' CASCADE' : ''}`;
+    return this;
+  }
+
+  /**
    * List tables/collections for the current connection.
    * @param {{schema?: string}} [opts]
    * @returns {Promise<string[]>}
@@ -1111,6 +1155,643 @@ _timestampTriggerSql(table, pkCols) {
   }
 
   /**
+   * List schemas / namespaces visible to the current connection.
+   * MySQL maps schemas to databases.
+   *
+   * @param {{includeSystem?: boolean}} [opts]
+   * @returns {Promise<string[]>}
+   */
+  async showSchemas(opts = {}) {
+    const d = this.dialect;
+    const includeSystem = opts?.includeSystem === true;
+
+    if (d === 'mongo') {
+      throw new Error('mongo: showSchemas is not supported');
+    }
+
+    if (d === 'pg') {
+      const rows = await this._runSelect(
+        includeSystem
+          ? 'SELECT schema_name AS name FROM information_schema.schemata ORDER BY schema_name'
+          : "SELECT schema_name AS name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema') ORDER BY schema_name",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mysql') {
+      const rows = await this._runSelect(
+        'SELECT schema_name AS name FROM information_schema.schemata ORDER BY schema_name',
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mssql') {
+      const rows = await this._runSelect(
+        includeSystem
+          ? 'SELECT name FROM sys.schemas ORDER BY name'
+          : "SELECT name FROM sys.schemas WHERE name NOT IN ('dbo', 'guest', 'INFORMATION_SCHEMA', 'sys') ORDER BY name",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'oracle') {
+      const rows = await this._runSelect(
+        includeSystem
+          ? 'SELECT username AS name FROM all_users ORDER BY username'
+          : "SELECT username AS name FROM all_users WHERE username NOT IN ('SYS', 'SYSTEM') ORDER BY username",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    throw new Error(`${d}: showSchemas not supported`);
+  }
+
+  /**
+   * List sequences visible to the current connection.
+   *
+   * @param {{schema?: string}} [opts]
+   * @returns {Promise<string[]>}
+   */
+  async showSequences(opts = {}) {
+    const d = this.dialect;
+
+    if (d === 'mongo') {
+      throw new Error('mongo: showSequences is not supported');
+    }
+
+    if (d === 'pg') {
+      const schema = opts?.schema;
+      if (schema) {
+        const p1 = this.adapter.placeholder(1);
+        const rows = await this._runSelect(
+          `SELECT sequence_name AS name FROM information_schema.sequences WHERE sequence_schema = ${p1} ORDER BY sequence_name`,
+          [schema],
+        );
+        return rowsToNames(rows, 'name');
+      }
+      const rows = await this._runSelect(
+        "SELECT sequence_name AS name FROM information_schema.sequences WHERE sequence_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY sequence_name",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mssql') {
+      const schema = opts?.schema;
+      const params = [];
+      const where = [];
+      if (schema) {
+        params.push(schema);
+        where.push(`s.name = ${this.adapter.placeholder(params.length)}`);
+      }
+      const rows = await this._runSelect(
+        `SELECT seq.name AS name FROM sys.sequences seq JOIN sys.schemas s ON s.schema_id = seq.schema_id${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY seq.name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'oracle') {
+      const schema = opts?.schema;
+      if (schema) {
+        const p1 = this.adapter.placeholder(1);
+        const rows = await this._runSelect(
+          `SELECT sequence_name AS name FROM all_sequences WHERE sequence_owner = ${p1} ORDER BY sequence_name`,
+          [String(schema).toUpperCase()],
+        );
+        return rowsToNames(rows, 'name');
+      }
+      const rows = await this._runSelect(
+        'SELECT sequence_name AS name FROM user_sequences ORDER BY sequence_name',
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mysql') {
+      throw new Error('mysql: showSequences is not supported');
+    }
+
+    throw new Error(`${d}: showSequences not supported`);
+  }
+
+  /**
+   * List SQL views / Mongo view collections visible to the current connection.
+   * @param {{schema?: string}} [opts]
+   * @returns {Promise<string[]>}
+   */
+  async showViews(opts = {}) {
+    return this._listViews(opts);
+  }
+
+  /**
+   * List triggers visible to the current connection.
+   * Use opts.table to scope results to a table when needed.
+   *
+   * @param {{schema?: string, table?: string}} [opts]
+   * @returns {Promise<string[]>}
+   */
+  async showTriggers(opts = {}) {
+    const d = this.dialect;
+
+    if (d === 'mongo') {
+      throw new Error('mongo: showTriggers is not supported');
+    }
+
+    const scope = normalizeScopedObjectFilter(opts?.table, opts?.schema);
+    const schema = scope.schema;
+    const table = scope.name;
+
+    if (d === 'pg') {
+      const where = [];
+      const params = [];
+      if (schema) {
+        params.push(schema);
+        where.push(`trigger_schema = ${this.adapter.placeholder(params.length)}`);
+      } else {
+        where.push("trigger_schema NOT IN ('pg_catalog', 'information_schema')");
+      }
+      if (table) {
+        params.push(table);
+        where.push(`event_object_table = ${this.adapter.placeholder(params.length)}`);
+      }
+      const rows = await this._runSelect(
+        `SELECT DISTINCT trigger_name AS name FROM information_schema.triggers${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY trigger_name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mysql') {
+      const where = [];
+      const params = [];
+      if (schema) {
+        params.push(schema);
+        where.push(`trigger_schema = ${this.adapter.placeholder(params.length)}`);
+      } else {
+        where.push('trigger_schema = DATABASE()');
+      }
+      if (table) {
+        params.push(table);
+        where.push(`event_object_table = ${this.adapter.placeholder(params.length)}`);
+      }
+      const rows = await this._runSelect(
+        `SELECT trigger_name AS name FROM information_schema.triggers${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY trigger_name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mssql') {
+      const where = ['t.parent_class_desc = \'OBJECT_OR_COLUMN\''];
+      const params = [];
+      if (schema) {
+        params.push(schema);
+        where.push(`s.name = ${this.adapter.placeholder(params.length)}`);
+      }
+      if (table) {
+        params.push(table);
+        where.push(`tb.name = ${this.adapter.placeholder(params.length)}`);
+      }
+      const rows = await this._runSelect(
+        `SELECT t.name AS name FROM sys.triggers t JOIN sys.tables tb ON tb.object_id = t.parent_id JOIN sys.schemas s ON s.schema_id = tb.schema_id WHERE ${where.join(' AND ')} ORDER BY t.name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'oracle') {
+      const upperSchema = schema ? String(schema).toUpperCase() : null;
+      const upperTable = table ? String(table).toUpperCase() : null;
+      const where = [];
+      const params = [];
+      if (upperSchema) {
+        params.push(upperSchema);
+        where.push(`owner = ${this.adapter.placeholder(params.length)}`);
+      }
+      if (upperTable) {
+        params.push(upperTable);
+        where.push(`table_name = ${this.adapter.placeholder(params.length)}`);
+      }
+      const source = upperSchema ? 'all_triggers' : 'user_triggers';
+      const rows = await this._runSelect(
+        `SELECT trigger_name AS name FROM ${source}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY trigger_name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    throw new Error(`${d}: showTriggers not supported`);
+  }
+
+  /**
+   * List indexes for a table / collection.
+   * @param {string} name
+   * @param {{schema?: string}} [opts]
+   * @returns {Promise<string[]>}
+   */
+  async showIndexes(name, opts = {}) {
+    const d = this.dialect;
+    const scope = normalizeScopedObjectFilter(name, opts?.schema);
+    const tableName = scope.name;
+    const schema = scope.schema;
+    if (!tableName) throw new Error('showIndexes(name) requires a table/collection name');
+
+    if (d === 'mongo') {
+      const col = this.adapter?.db?.collection?.(tableName);
+      if (!col?.listIndexes) throw new Error('mongo: collection().listIndexes() is not available on this adapter');
+      const rows = await col.listIndexes().toArray();
+      return rowsToNames(rows, 'name').sort();
+    }
+
+    if (d === 'pg') {
+      const params = [];
+      const where = [];
+      if (schema) {
+        params.push(schema);
+        where.push(`schemaname = ${this.adapter.placeholder(params.length)}`);
+      } else {
+        where.push("schemaname NOT IN ('pg_catalog', 'information_schema')");
+      }
+      params.push(tableName);
+      where.push(`tablename = ${this.adapter.placeholder(params.length)}`);
+      const rows = await this._runSelect(
+        `SELECT indexname AS name FROM pg_indexes WHERE ${where.join(' AND ')} ORDER BY indexname`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mysql') {
+      const params = [];
+      const where = [];
+      if (schema) {
+        params.push(schema);
+        where.push(`table_schema = ${this.adapter.placeholder(params.length)}`);
+      } else {
+        where.push('table_schema = DATABASE()');
+      }
+      params.push(tableName);
+      where.push(`table_name = ${this.adapter.placeholder(params.length)}`);
+      const rows = await this._runSelect(
+        `SELECT DISTINCT index_name AS name FROM information_schema.statistics WHERE ${where.join(' AND ')} ORDER BY index_name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mssql') {
+      const params = [];
+      const where = ['i.name IS NOT NULL', 'i.is_hypothetical = 0'];
+      params.push(tableName);
+      where.push(`tb.name = ${this.adapter.placeholder(params.length)}`);
+      if (schema) {
+        params.push(schema);
+        where.push(`s.name = ${this.adapter.placeholder(params.length)}`);
+      }
+      const rows = await this._runSelect(
+        `SELECT i.name AS name FROM sys.indexes i JOIN sys.tables tb ON tb.object_id = i.object_id JOIN sys.schemas s ON s.schema_id = tb.schema_id WHERE ${where.join(' AND ')} ORDER BY i.name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'oracle') {
+      const upperSchema = schema ? String(schema).toUpperCase() : null;
+      const upperTable = String(tableName).toUpperCase();
+      const params = [];
+      const where = [];
+      if (upperSchema) {
+        params.push(upperSchema);
+        where.push(`owner = ${this.adapter.placeholder(params.length)}`);
+      }
+      params.push(upperTable);
+      where.push(`table_name = ${this.adapter.placeholder(params.length)}`);
+      const source = upperSchema ? 'all_indexes' : 'user_indexes';
+      const rows = await this._runSelect(
+        `SELECT index_name AS name FROM ${source} WHERE ${where.join(' AND ')} ORDER BY index_name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    throw new Error(`${d}: showIndexes not supported`);
+  }
+
+  /**
+   * List table constraints visible to the current connection.
+   * Use opts.table / opts.schema to scope results.
+   *
+   * @param {{schema?: string, table?: string, type?: string}} [opts]
+   * @returns {Promise<string[]>}
+   */
+  async showConstraints(opts = {}) {
+    const d = this.dialect;
+
+    if (d === 'mongo') {
+      throw new Error('mongo: showConstraints is not supported');
+    }
+
+    const scope = normalizeScopedObjectFilter(opts?.table, opts?.schema);
+    const schema = scope.schema;
+    const table = scope.name;
+    const type = normalizeConstraintTypeFilter(d, opts?.type);
+
+    if (d === 'pg') {
+      const where = [];
+      const params = [];
+      if (schema) {
+        params.push(schema);
+        where.push(`table_schema = ${this.adapter.placeholder(params.length)}`);
+      } else {
+        where.push("table_schema NOT IN ('pg_catalog', 'information_schema')");
+      }
+      if (table) {
+        params.push(table);
+        where.push(`table_name = ${this.adapter.placeholder(params.length)}`);
+      }
+      if (type) {
+        params.push(type);
+        where.push(`constraint_type = ${this.adapter.placeholder(params.length)}`);
+      }
+      const rows = await this._runSelect(
+        `SELECT constraint_name AS name FROM information_schema.table_constraints${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY constraint_name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mysql') {
+      const where = [];
+      const params = [];
+      if (schema) {
+        params.push(schema);
+        where.push(`table_schema = ${this.adapter.placeholder(params.length)}`);
+      } else {
+        where.push('table_schema = DATABASE()');
+      }
+      if (table) {
+        params.push(table);
+        where.push(`table_name = ${this.adapter.placeholder(params.length)}`);
+      }
+      if (type) {
+        params.push(type);
+        where.push(`constraint_type = ${this.adapter.placeholder(params.length)}`);
+      }
+      const rows = await this._runSelect(
+        `SELECT constraint_name AS name FROM information_schema.table_constraints${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY constraint_name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mssql') {
+      const where = [];
+      const params = [];
+      if (schema) {
+        params.push(schema);
+        where.push(`TABLE_SCHEMA = ${this.adapter.placeholder(params.length)}`);
+      }
+      if (table) {
+        params.push(table);
+        where.push(`TABLE_NAME = ${this.adapter.placeholder(params.length)}`);
+      }
+      if (type) {
+        params.push(type);
+        where.push(`CONSTRAINT_TYPE = ${this.adapter.placeholder(params.length)}`);
+      }
+      const rows = await this._runSelect(
+        `SELECT CONSTRAINT_NAME AS name FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY CONSTRAINT_NAME`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'oracle') {
+      const upperSchema = schema ? String(schema).toUpperCase() : null;
+      const upperTable = table ? String(table).toUpperCase() : null;
+      const where = [];
+      const params = [];
+      if (upperSchema) {
+        params.push(upperSchema);
+        where.push(`owner = ${this.adapter.placeholder(params.length)}`);
+      }
+      if (upperTable) {
+        params.push(upperTable);
+        where.push(`table_name = ${this.adapter.placeholder(params.length)}`);
+      }
+      if (type) {
+        params.push(type);
+        where.push(`constraint_type = ${this.adapter.placeholder(params.length)}`);
+      }
+      const source = upperSchema ? 'all_constraints' : 'user_constraints';
+      const rows = await this._runSelect(
+        `SELECT constraint_name AS name FROM ${source}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY constraint_name`,
+        params,
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    throw new Error(`${d}: showConstraints not supported`);
+  }
+
+  /**
+   * List functions visible to the current connection.
+   * @param {{schema?: string}} [opts]
+   * @returns {Promise<string[]>}
+   */
+  async showFunctions(opts = {}) {
+    const d = this.dialect;
+
+    if (d === 'mongo') {
+      throw new Error('mongo: showFunctions is not supported');
+    }
+
+    if (d === 'pg') {
+      const schema = opts?.schema;
+      if (schema) {
+        const p1 = this.adapter.placeholder(1);
+        const rows = await this._runSelect(
+          `SELECT routine_name AS name FROM information_schema.routines WHERE routine_schema = ${p1} AND routine_type = 'FUNCTION' ORDER BY routine_name`,
+          [schema],
+        );
+        return rowsToNames(rows, 'name');
+      }
+      const rows = await this._runSelect(
+        "SELECT routine_name AS name FROM information_schema.routines WHERE routine_type = 'FUNCTION' AND routine_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY routine_name",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mysql') {
+      const schema = opts?.schema;
+      if (schema) {
+        const p1 = this.adapter.placeholder(1);
+        const rows = await this._runSelect(
+          `SELECT routine_name AS name FROM information_schema.routines WHERE routine_schema = ${p1} AND routine_type = 'FUNCTION' ORDER BY routine_name`,
+          [schema],
+        );
+        return rowsToNames(rows, 'name');
+      }
+      const rows = await this._runSelect(
+        "SELECT routine_name AS name FROM information_schema.routines WHERE routine_schema = DATABASE() AND routine_type = 'FUNCTION' ORDER BY routine_name",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mssql') {
+      const schema = opts?.schema;
+      if (schema) {
+        const p1 = this.adapter.placeholder(1);
+        const rows = await this._runSelect(
+          `SELECT ROUTINE_NAME AS name FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_SCHEMA = ${p1} AND ROUTINE_TYPE = 'FUNCTION' ORDER BY ROUTINE_NAME`,
+          [schema],
+        );
+        return rowsToNames(rows, 'name');
+      }
+      const rows = await this._runSelect(
+        "SELECT ROUTINE_NAME AS name FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_TYPE = 'FUNCTION' ORDER BY ROUTINE_NAME",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'oracle') {
+      const schema = opts?.schema;
+      if (schema) {
+        const p1 = this.adapter.placeholder(1);
+        const rows = await this._runSelect(
+          `SELECT object_name AS name FROM all_procedures WHERE owner = ${p1} AND object_type = 'FUNCTION' AND procedure_name IS NULL ORDER BY object_name`,
+          [String(schema).toUpperCase()],
+        );
+        return rowsToNames(rows, 'name');
+      }
+      const rows = await this._runSelect(
+        "SELECT object_name AS name FROM user_procedures WHERE object_type = 'FUNCTION' AND procedure_name IS NULL ORDER BY object_name",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    throw new Error(`${d}: showFunctions not supported`);
+  }
+
+  /**
+   * List procedures visible to the current connection.
+   * @param {{schema?: string}} [opts]
+   * @returns {Promise<string[]>}
+   */
+  async showProcedures(opts = {}) {
+    const d = this.dialect;
+
+    if (d === 'mongo') {
+      throw new Error('mongo: showProcedures is not supported');
+    }
+
+    if (d === 'pg') {
+      const schema = opts?.schema;
+      if (schema) {
+        const p1 = this.adapter.placeholder(1);
+        const rows = await this._runSelect(
+          `SELECT routine_name AS name FROM information_schema.routines WHERE routine_schema = ${p1} AND routine_type = 'PROCEDURE' ORDER BY routine_name`,
+          [schema],
+        );
+        return rowsToNames(rows, 'name');
+      }
+      const rows = await this._runSelect(
+        "SELECT routine_name AS name FROM information_schema.routines WHERE routine_type = 'PROCEDURE' AND routine_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY routine_name",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mysql') {
+      const schema = opts?.schema;
+      if (schema) {
+        const p1 = this.adapter.placeholder(1);
+        const rows = await this._runSelect(
+          `SELECT routine_name AS name FROM information_schema.routines WHERE routine_schema = ${p1} AND routine_type = 'PROCEDURE' ORDER BY routine_name`,
+          [schema],
+        );
+        return rowsToNames(rows, 'name');
+      }
+      const rows = await this._runSelect(
+        "SELECT routine_name AS name FROM information_schema.routines WHERE routine_schema = DATABASE() AND routine_type = 'PROCEDURE' ORDER BY routine_name",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'mssql') {
+      const schema = opts?.schema;
+      if (schema) {
+        const p1 = this.adapter.placeholder(1);
+        const rows = await this._runSelect(
+          `SELECT ROUTINE_NAME AS name FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_SCHEMA = ${p1} AND ROUTINE_TYPE = 'PROCEDURE' ORDER BY ROUTINE_NAME`,
+          [schema],
+        );
+        return rowsToNames(rows, 'name');
+      }
+      const rows = await this._runSelect(
+        "SELECT ROUTINE_NAME AS name FROM INFORMATION_SCHEMA.ROUTINES WHERE ROUTINE_TYPE = 'PROCEDURE' ORDER BY ROUTINE_NAME",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    if (d === 'oracle') {
+      const schema = opts?.schema;
+      if (schema) {
+        const p1 = this.adapter.placeholder(1);
+        const rows = await this._runSelect(
+          `SELECT object_name AS name FROM all_procedures WHERE owner = ${p1} AND object_type = 'PROCEDURE' AND procedure_name IS NULL ORDER BY object_name`,
+          [String(schema).toUpperCase()],
+        );
+        return rowsToNames(rows, 'name');
+      }
+      const rows = await this._runSelect(
+        "SELECT object_name AS name FROM user_procedures WHERE object_type = 'PROCEDURE' AND procedure_name IS NULL ORDER BY object_name",
+        [],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    throw new Error(`${d}: showProcedures not supported`);
+  }
+
+  /**
+   * List PostgreSQL aggregate objects visible to the current connection.
+   * @param {{schema?: string}} [opts]
+   * @returns {Promise<string[]>}
+   */
+  async showAggregates(opts = {}) {
+    const d = this.dialect;
+    if (d !== 'pg') throw new Error(`${d}: showAggregates is only supported on PostgreSQL`);
+
+    const schema = opts?.schema;
+    if (schema) {
+      const p1 = this.adapter.placeholder(1);
+      const rows = await this._runSelect(
+        `SELECT p.proname AS name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_aggregate a ON a.aggfnoid = p.oid WHERE n.nspname = ${p1} ORDER BY p.proname`,
+        [schema],
+      );
+      return rowsToNames(rows, 'name');
+    }
+
+    const rows = await this._runSelect(
+      "SELECT p.proname AS name FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace JOIN pg_aggregate a ON a.aggfnoid = p.oid WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') ORDER BY p.proname",
+      [],
+    );
+    return rowsToNames(rows, 'name');
+  }
+
+  /**
    * Describe table/collection or database structure.
    *
    * Usage:
@@ -1137,6 +1818,8 @@ _timestampTriggerSql(table, pkCols) {
   async _describeDatabase(opts = {}) {
     const d = this.dialect;
     const includeCreateSql = opts?.includeCreateSql === true;
+    const includeIndexes = opts?.includeIndexes === true;
+    const includeTriggers = opts?.includeTriggers === true;
 
     if (d === 'mongo') {
       const name = this.adapter?.db?.databaseName ?? null;
@@ -1152,7 +1835,7 @@ _timestampTriggerSql(table, pkCols) {
         out.databases = await this.showDatabases();
       }
 
-      if (opts.deep === true) {
+      if (opts.deep === true || includeIndexes || includeTriggers) {
         const collectionDescriptions = {};
         for (const c of collections) {
           collectionDescriptions[c] = await this._describeTable(c, { ...opts, strict: false, includeCreateSql });
@@ -1179,7 +1862,7 @@ _timestampTriggerSql(table, pkCols) {
       views,
     };
 
-    if (opts.deep === true) {
+    if (opts.deep === true || includeIndexes || includeTriggers) {
       const tableDescriptions = {};
       for (const t of tables) {
         tableDescriptions[t] = await this._describeTable(t, { ...opts, schema, strict: false, includeCreateSql });
@@ -1208,6 +1891,8 @@ _timestampTriggerSql(table, pkCols) {
     const d = this.dialect;
     const tableName = String(name ?? '').trim();
     if (!tableName) throw new Error('getDesc("table", name) requires a table/collection name');
+    const includeIndexes = opts?.includeIndexes === true;
+    const includeTriggers = opts?.includeTriggers === true;
 
     if (d === 'mongo') {
       return this._describeMongoCollection(tableName, opts);
@@ -1228,6 +1913,8 @@ _timestampTriggerSql(table, pkCols) {
         schema,
         columns: normalizeColumnDescriptions(rows),
       };
+      if (includeIndexes) out.indexes = await this.showIndexes(`${schema}.${tableName}`);
+      if (includeTriggers) out.triggers = await this.showTriggers({ schema, table: tableName });
       if (opts?.includeCreateSql === true) {
         out.createSql = await this._buildPgCreateTableSql(schema, tableName);
       }
@@ -1259,6 +1946,8 @@ _timestampTriggerSql(table, pkCols) {
         schema,
         columns: normalizeColumnDescriptions(rows),
       };
+      if (includeIndexes) out.indexes = await this.showIndexes(schema ? `${schema}.${tableName}` : tableName);
+      if (includeTriggers) out.triggers = await this.showTriggers({ schema, table: tableName });
       if (opts?.includeCreateSql === true) out.createSql = buildCreateTableScript(out);
       return out;
     }
@@ -1278,6 +1967,8 @@ _timestampTriggerSql(table, pkCols) {
         schema,
         columns: normalizeColumnDescriptions(rows),
       };
+      if (includeIndexes) out.indexes = await this.showIndexes(`${schema}.${tableName}`);
+      if (includeTriggers) out.triggers = await this.showTriggers({ schema, table: tableName });
       if (opts?.includeCreateSql === true) out.createSql = buildCreateTableScript(out);
       return out;
     }
@@ -1308,6 +1999,8 @@ _timestampTriggerSql(table, pkCols) {
         schema,
         columns: normalizeColumnDescriptions(rows),
       };
+      if (includeIndexes) out.indexes = await this.showIndexes(schema ? `${schema}.${tableName}` : tableName);
+      if (includeTriggers) out.triggers = await this.showTriggers({ schema, table: tableName });
       if (opts?.includeCreateSql === true) out.createSql = buildCreateTableScript(out);
       return out;
     }
@@ -1335,6 +2028,8 @@ _timestampTriggerSql(table, pkCols) {
       sampleSize,
       columns: inferMongoColumns(docs),
     };
+    if (opts?.includeIndexes === true) out.indexes = await this.showIndexes(collectionName);
+    if (opts?.includeTriggers === true) out.triggers = [];
     if (opts?.includeCreateSql === true) out.createSql = buildCreateTableScript(out);
     return out;
   }
@@ -1423,7 +2118,12 @@ _timestampTriggerSql(table, pkCols) {
 
   async _listViews(opts = {}) {
     const d = this.dialect;
-    if (d === 'mongo') return [];
+    if (d === 'mongo') {
+      const cursor = this.adapter?.db?.listCollections?.({ type: 'view' }, { nameOnly: true });
+      if (!cursor?.toArray) return [];
+      const rows = await cursor.toArray();
+      return rowsToNames(rows, 'name').sort();
+    }
 
     if (d === 'pg') {
       const schema = opts?.schema;
@@ -1550,6 +2250,150 @@ _timestampTriggerSql(table, pkCols) {
   }
 
   /**
+   * Create a SQL function (best-effort, dialect-specific).
+   *
+   * The function body is passed through as a dialect-specific routine body.
+   * Keep the body syntax valid for the target database.
+   *
+   * @param {{
+   *   name: string,
+   *   args?: string|string[],
+   *   returns: string,
+   *   body: string,
+   *   language?: string,
+   *   orReplace?: boolean,
+   *   deterministic?: boolean
+   * }} def
+   */
+  createFunction(def = {}) {
+    if (this.dialect === 'mongo') throw new Error('Schema builder is SQL-only');
+
+    const d = this.dialect;
+    const name = String(def.name ?? '').trim();
+    const returns = String(def.returns ?? '').trim();
+    const body = String(def.body ?? '').trim();
+    const args = formatRoutineArgList(def.args);
+    const orReplace = def.orReplace === true;
+    const deterministic = def.deterministic === true;
+
+    if (!name || !returns || !body) {
+      throw new Error('createFunction requires { name, returns, body }');
+    }
+
+    if (d === 'pg') {
+      const language = String(def.language ?? 'plpgsql').trim();
+      if (!language) throw new Error('pg: createFunction requires a non-empty language');
+      this._sql = `CREATE${orReplace ? ' OR REPLACE' : ''} FUNCTION ${quoteIdent(d, name)}(${args}) RETURNS ${returns} AS $$\n${body}\n$$ LANGUAGE ${language}`;
+      return this;
+    }
+
+    if (d === 'mysql') {
+      if (orReplace) throw new Error('mysql: createFunction does not support orReplace; drop the function first');
+      const attrs = [];
+      if (deterministic) attrs.push('DETERMINISTIC');
+      const attrSql = attrs.length ? ` ${attrs.join(' ')}` : '';
+      this._sql = `CREATE FUNCTION ${quoteIdent(d, name)}(${args}) RETURNS ${returns}${attrSql}\n${body}`;
+      return this;
+    }
+
+    if (d === 'mssql') {
+      const keyword = orReplace ? 'CREATE OR ALTER' : 'CREATE';
+      this._sql = `${keyword} FUNCTION ${quoteIdent(d, name)}(${args}) RETURNS ${returns} AS\n${body}`;
+      return this;
+    }
+
+    if (d === 'oracle') {
+      this._sql = `CREATE${orReplace ? ' OR REPLACE' : ''} FUNCTION ${quoteIdent(d, name)}(${args}) RETURN ${returns}\n${body}`;
+      return this;
+    }
+
+    throw new Error(`${d}: createFunction not supported`);
+  }
+
+  /**
+   * Create a SQL procedure (best-effort, dialect-specific).
+   *
+   * The procedure body is passed through as a dialect-specific routine body.
+   * Keep the body syntax valid for the target database.
+   *
+   * @param {{
+   *   name: string,
+   *   args?: string|string[],
+   *   body: string,
+   *   language?: string,
+   *   orReplace?: boolean
+   * }} def
+   */
+  createProcedure(def = {}) {
+    if (this.dialect === 'mongo') throw new Error('Schema builder is SQL-only');
+
+    const d = this.dialect;
+    const name = String(def.name ?? '').trim();
+    const body = String(def.body ?? '').trim();
+    const args = formatRoutineArgList(def.args);
+    const orReplace = def.orReplace === true;
+
+    if (!name || !body) {
+      throw new Error('createProcedure requires { name, body }');
+    }
+
+    if (d === 'pg') {
+      const language = String(def.language ?? 'plpgsql').trim();
+      if (!language) throw new Error('pg: createProcedure requires a non-empty language');
+      this._sql = `CREATE${orReplace ? ' OR REPLACE' : ''} PROCEDURE ${quoteIdent(d, name)}(${args}) LANGUAGE ${language} AS $$\n${body}\n$$`;
+      return this;
+    }
+
+    if (d === 'mysql') {
+      if (orReplace) throw new Error('mysql: createProcedure does not support orReplace; drop the procedure first');
+      this._sql = `CREATE PROCEDURE ${quoteIdent(d, name)}(${args})\n${body}`;
+      return this;
+    }
+
+    if (d === 'mssql') {
+      const keyword = orReplace ? 'CREATE OR ALTER' : 'CREATE';
+      const argSql = args ? ` ${args}` : '';
+      this._sql = `${keyword} PROCEDURE ${quoteIdent(d, name)}${argSql} AS\n${body}`;
+      return this;
+    }
+
+    if (d === 'oracle') {
+      this._sql = `CREATE${orReplace ? ' OR REPLACE' : ''} PROCEDURE ${quoteIdent(d, name)}(${args})\n${body}`;
+      return this;
+    }
+
+    throw new Error(`${d}: createProcedure not supported`);
+  }
+
+  /**
+   * Create a PostgreSQL aggregate object.
+   *
+   * This is intentionally PostgreSQL-only because user-defined aggregate
+   * objects do not have a portable cross-dialect shape.
+   *
+   * @param {{
+   *   name: string,
+   *   args?: string|string[],
+   *   definition: string|Record<string, any>
+   * }} def
+   */
+  createAggregate(def = {}) {
+    const d = this.dialect;
+    if (d !== 'pg') throw new Error(`${d}: createAggregate is only supported on PostgreSQL`);
+
+    const name = String(def.name ?? '').trim();
+    const args = formatRoutineArgList(def.args);
+    const definition = formatAggregateDefinition(def.definition);
+
+    if (!name || !definition) {
+      throw new Error('createAggregate requires { name, definition }');
+    }
+
+    this._sql = `CREATE AGGREGATE ${quoteIdent(d, name)}(${args}) (\n  ${definition}\n)`;
+    return this;
+  }
+
+  /**
    * Drop a SQL view.
    * @param {string} name
    * @param {{ifExists?: boolean, cascade?: boolean}} [opts]
@@ -1589,6 +2433,124 @@ _timestampTriggerSql(table, pkCols) {
     }
 
     this._sql = `DROP VIEW ${qn}`;
+    return this;
+  }
+
+  /**
+   * Drop a SQL function (best-effort, dialect-specific).
+   * For PostgreSQL, pass `opts.args` using argument types for overloaded functions.
+   *
+   * @param {string} name
+   * @param {{args?: string|string[], ifExists?: boolean, cascade?: boolean}} [opts]
+   */
+  dropFunction(name, opts = {}) {
+    if (this.dialect === 'mongo') throw new Error('Schema builder is SQL-only');
+
+    const d = this.dialect;
+    const fn = String(name).trim();
+    const ifExists = opts.ifExists === true;
+    const cascade = opts.cascade === true;
+    const args = formatRoutineArgList(opts.args);
+
+    if (!fn) throw new Error('dropFunction requires a function name');
+
+    if (d === 'pg') {
+      this._sql = `DROP FUNCTION${ifExists ? ' IF EXISTS' : ''} ${quoteIdent(d, fn)}(${args})${cascade ? ' CASCADE' : ''}`;
+      return this;
+    }
+
+    if (d === 'mysql') {
+      this._sql = `DROP FUNCTION${ifExists ? ' IF EXISTS' : ''} ${quoteIdent(d, fn)}`;
+      return this;
+    }
+
+    if (d === 'mssql') {
+      if (ifExists) {
+        const esc = fn.replace(/'/g, "''");
+        this._sql = `IF OBJECT_ID(N'${esc}') IS NOT NULL DROP FUNCTION ${quoteIdent(d, fn)}`;
+        return this;
+      }
+      this._sql = `DROP FUNCTION ${quoteIdent(d, fn)}`;
+      return this;
+    }
+
+    if (d === 'oracle') {
+      this._sql = ifExists
+        ? `BEGIN EXECUTE IMMEDIATE 'DROP FUNCTION ${String(fn).replace(/'/g, "''")}'; EXCEPTION WHEN OTHERS THEN NULL; END;`
+        : `DROP FUNCTION ${quoteIdent(d, fn)}`;
+      return this;
+    }
+
+    throw new Error(`${d}: dropFunction not supported`);
+  }
+
+  /**
+   * Drop a SQL procedure (best-effort, dialect-specific).
+   * For PostgreSQL, pass `opts.args` using argument types for overloaded procedures.
+   *
+   * @param {string} name
+   * @param {{args?: string|string[], ifExists?: boolean, cascade?: boolean}} [opts]
+   */
+  dropProcedure(name, opts = {}) {
+    if (this.dialect === 'mongo') throw new Error('Schema builder is SQL-only');
+
+    const d = this.dialect;
+    const proc = String(name).trim();
+    const ifExists = opts.ifExists === true;
+    const cascade = opts.cascade === true;
+    const args = formatRoutineArgList(opts.args);
+
+    if (!proc) throw new Error('dropProcedure requires a procedure name');
+
+    if (d === 'pg') {
+      this._sql = `DROP PROCEDURE${ifExists ? ' IF EXISTS' : ''} ${quoteIdent(d, proc)}(${args})${cascade ? ' CASCADE' : ''}`;
+      return this;
+    }
+
+    if (d === 'mysql') {
+      this._sql = `DROP PROCEDURE${ifExists ? ' IF EXISTS' : ''} ${quoteIdent(d, proc)}`;
+      return this;
+    }
+
+    if (d === 'mssql') {
+      if (ifExists) {
+        const esc = proc.replace(/'/g, "''");
+        this._sql = `IF OBJECT_ID(N'${esc}', N'P') IS NOT NULL DROP PROCEDURE ${quoteIdent(d, proc)}`;
+        return this;
+      }
+      this._sql = `DROP PROCEDURE ${quoteIdent(d, proc)}`;
+      return this;
+    }
+
+    if (d === 'oracle') {
+      this._sql = ifExists
+        ? `BEGIN EXECUTE IMMEDIATE 'DROP PROCEDURE ${String(proc).replace(/'/g, "''")}'; EXCEPTION WHEN OTHERS THEN NULL; END;`
+        : `DROP PROCEDURE ${quoteIdent(d, proc)}`;
+      return this;
+    }
+
+    throw new Error(`${d}: dropProcedure not supported`);
+  }
+
+  /**
+   * Drop a PostgreSQL aggregate object.
+   * Pass `opts.args` with the aggregate signature types.
+   *
+   * @param {string} name
+   * @param {{args?: string|string[], ifExists?: boolean, cascade?: boolean}} [opts]
+   */
+  dropAggregate(name, opts = {}) {
+    const d = this.dialect;
+    if (d !== 'pg') throw new Error(`${d}: dropAggregate is only supported on PostgreSQL`);
+
+    const agg = String(name).trim();
+    const ifExists = opts.ifExists === true;
+    const cascade = opts.cascade === true;
+    const args = formatRoutineArgList(opts.args);
+
+    if (!agg) throw new Error('dropAggregate requires an aggregate name');
+
+    this._sql = `DROP AGGREGATE${ifExists ? ' IF EXISTS' : ''} ${quoteIdent(d, agg)}(${args})${cascade ? ' CASCADE' : ''}`;
     return this;
   }
 
@@ -1921,6 +2883,25 @@ function asObject(v) {
   return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
 }
 
+function normalizeConstraintTypeFilter(dialect, type) {
+  if (type == null) return null;
+  const raw = String(type).trim();
+  if (!raw) return null;
+  const upper = raw.toUpperCase();
+
+  if (dialect === 'oracle') {
+    if (upper === 'PRIMARY KEY' || upper === 'PRIMARY') return 'P';
+    if (upper === 'UNIQUE') return 'U';
+    if (upper === 'FOREIGN KEY' || upper === 'FOREIGN') return 'R';
+    if (upper === 'CHECK') return 'C';
+    return upper;
+  }
+
+  if (upper === 'PRIMARY') return 'PRIMARY KEY';
+  if (upper === 'FOREIGN') return 'FOREIGN KEY';
+  return upper;
+}
+
 function normalizeColumnDescriptions(rows) {
   if (!Array.isArray(rows)) return [];
   return rows.map((row) => {
@@ -2104,6 +3085,8 @@ function toStrictTableShape(desc) {
     name: desc?.name ?? null,
     schema: desc?.schema ?? null,
     columns,
+    indexes: Array.isArray(desc?.indexes) ? desc.indexes.slice() : [],
+    triggers: Array.isArray(desc?.triggers) ? desc.triggers.slice() : [],
     sampleSize: desc?.sampleSize ?? null,
     sampledDocuments: desc?.sampledDocuments ?? null,
     createSql: desc?.createSql ?? null,
@@ -2220,6 +3203,101 @@ function splitObjectName(name, schemaOverride = null) {
     schema: schemaOverride ?? (parts.length > 1 ? parts[0] : null),
     table: parts[parts.length - 1],
   };
+}
+
+function normalizeScopedObjectFilter(name, schemaOverride = null) {
+  if (name == null || String(name).trim() === '') {
+    const schema = schemaOverride == null ? null : String(schemaOverride);
+    if (schema) assertIdent(schema);
+    return { schema, name: null };
+  }
+  const scoped = splitObjectName(String(name), schemaOverride);
+  return {
+    schema: scoped.schema,
+    name: scoped.table,
+  };
+}
+
+function formatTypeDefinition(definition) {
+  if (Array.isArray(definition)) {
+    return definition.length ? `AS ENUM (${definition.map(v => quoteStringLiteral(v)).join(', ')})` : '';
+  }
+
+  if (typeof definition === 'string') {
+    const raw = String(definition).trim();
+    if (!raw) return '';
+    return /^AS\s+/i.test(raw) ? raw : `AS ${raw}`;
+  }
+
+  if (!definition || typeof definition !== 'object') {
+    return '';
+  }
+
+  const kind = String(definition.kind ?? '').trim().toLowerCase();
+  const enumValues = Array.isArray(definition.values) ? definition.values : definition.enum;
+  if (kind === 'enum' || Array.isArray(enumValues)) {
+    const vals = Array.isArray(enumValues) ? enumValues : [];
+    return vals.length ? `AS ENUM (${vals.map(v => quoteStringLiteral(v)).join(', ')})` : '';
+  }
+
+  const compositeFields = definition.fields ?? definition.composite;
+  if (kind === 'composite' || compositeFields) {
+    const attrs = formatCompositeTypeFields(compositeFields);
+    return attrs.length ? `AS (${attrs.join(', ')})` : '';
+  }
+
+  const raw = String(definition.definition ?? definition.raw ?? '').trim();
+  if (!raw) return '';
+  return /^AS\s+/i.test(raw) ? raw : `AS ${raw}`;
+}
+
+function formatCompositeTypeFields(fields) {
+  if (Array.isArray(fields)) {
+    return fields
+      .map(field => String(field ?? '').trim())
+      .filter(Boolean);
+  }
+  if (!fields || typeof fields !== 'object') return [];
+  return Object.entries(fields)
+    .map(([name, type]) => {
+      const fieldName = String(name ?? '').trim();
+      const fieldType = String(type ?? '').trim();
+      if (!fieldName || !fieldType) return null;
+      return `${quoteIdent('pg', fieldName)} ${fieldType}`;
+    })
+    .filter(Boolean);
+}
+
+function formatRoutineArgList(args) {
+  if (args == null) return '';
+  const arr = Array.isArray(args) ? args : [args];
+  return arr
+    .map(arg => String(arg ?? '').trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+function formatAggregateDefinition(definition) {
+  if (typeof definition === 'string') {
+    return String(definition).trim();
+  }
+  if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
+    return '';
+  }
+
+  return Object.entries(definition)
+    .map(([key, value]) => {
+      const k = String(key ?? '').trim().toUpperCase();
+      if (!k) return null;
+      if (value == null) return `${k} = NULL`;
+      if (typeof value === 'number') return `${k} = ${value}`;
+      if (typeof value === 'boolean') return `${k} = ${value ? 'TRUE' : 'FALSE'}`;
+      const raw = String(value).trim();
+      if (!raw) return null;
+      return `${k} = ${looksLikeSqlExpression(raw) ? raw : quoteStringLiteral(raw)}`;
+    })
+    .filter(Boolean)
+    .join(',\n  ');
 }
 
 function buildVacuumOptions(opts = {}) {

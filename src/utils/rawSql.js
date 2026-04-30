@@ -16,8 +16,9 @@ export function normalizeRawParams(params) {
  * @param {'pg'|'mysql'|'mssql'|'oracle'|'mongo'|string} dialect
  * @param {string} sql
  * @param {any[]|any} params
+ * @param {number} [startIndex=0]
  */
-export function prepareRawSql(dialect, sql, params = []) {
+export function prepareRawSql(dialect, sql, params = [], startIndex = 0) {
   const values = normalizeRawParams(params);
   const input = String(sql);
   if (!values.length || !input) return { sql: input, params: values };
@@ -34,7 +35,7 @@ export function prepareRawSql(dialect, sql, params = []) {
     }
     found = true;
     usedSourceIndexes.add(sourceIndex);
-    const paramIndex = preparedParams.length + 1;
+    const paramIndex = startIndex + preparedParams.length + 1;
     preparedParams.push(values[sourceIndex]);
     out += placeholderForDialect(dialect, paramIndex);
   };

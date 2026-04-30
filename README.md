@@ -26,9 +26,18 @@ HTML documentation: [overview](./docs/index.html) and [API reference](./docs/api
 | `.onConflictDoUpdate(...)` | ✅ | ❌ | ✅ (single-row insert) | ✅ (single-row insert) | ✅ (single-row insert) |
 | `.onDuplicateKeyUpdate(...)` | ❌ | ✅ | ❌ | ❌ | ❌ |
 | `.returning(...)` | ✅ (native) | ❌ | ✅ (native `OUTPUT`) | ❌ | ✅ (best-effort on mutations) |
+| Functions (`createFunction/dropFunction`) | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Procedures (`createProcedure/dropProcedure`) | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Aggregate objects (`createAggregate/dropAggregate`) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Routine calls (`db.call(...)`) | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Table-valued / set-returning helper (`db.callTable(...)`) | ✅ | ❌ | ✅ | ✅ | ❌ |
+| Raw select expressions (`selectRaw/selectExpr`) | ✅ | ✅ | ✅ | ✅ | ❌ |
+| PostgreSQL types (`createType/dropType`) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `schema().createView()/dropView()` | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Triggers (`createTrigger/dropTrigger`) | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Schema DDL (`createTable/alterTable/dropTable`) | ✅ | ✅ | ✅ | ✅ | ⚠️ (`dropTable` only) |
+| Catalog helpers (`showSchemas/showSequences/showConstraints`) | ✅ | ⚠️ (`showSchemas`, `showConstraints`) | ✅ | ✅ | ❌ |
+| Introspection helpers (`showViews/showTriggers/showIndexes`) | ✅ | ✅ | ✅ | ✅ | ⚠️ (`showViews`/`showIndexes` only) |
 | Maintenance (`truncateTable`) | ✅ | ✅ | ✅ | ✅ | ✅ (`deleteMany({})`) |
 | Maintenance (`analyzeTable`) | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Maintenance (`optimizeTable`) | ✅ (`VACUUM`) | ✅ | ✅ | ❌ | ❌ |
@@ -42,9 +51,14 @@ Mongo notes:
 - Mongo `insertSelect` supports QueryBuilder source with explicit selected columns.
 - Mongo `schema().dropTable(name)` drops a collection; `createTable/alterTable` remain SQL-only.
 - Mongo `schema().truncateTable(name)` deletes all documents with `deleteMany({})`.
+- Mongo functions/procedures are not supported by QueryMesh schema APIs.
+- Custom aggregate objects are advanced PostgreSQL-only schema features in QueryMesh.
+- `db.call(...)` and `db.callTable(...)` are SQL-only.
 - Mongo triggers are not supported by QueryMesh (`createTrigger/dropTrigger` are SQL dialect features).
+- `selectRaw(...)`, `selectExpr(...)`, and SQL `raw(...)` fragments are SQL-only builder features.
+- `showSchemas()`, `showSequences()`, and `showConstraints()` are SQL-only.
 - Right/full join semantics are not fully equivalent to SQL joins in Mongo pipelines.
-- For Mongo schema APIs, use `showTables`, `showDatabases`, and `getDesc` for introspection.
+- For Mongo schema APIs, use `showTables`, `showDatabases`, `showViews`, `showIndexes`, and `getDesc` for introspection.
 - `optimizeTable` is a best-effort mapping, not identical SQL across dialects: pg uses `VACUUM`, mysql uses `OPTIMIZE TABLE`, mssql uses `ALTER INDEX`.
 - PostgreSQL `VACUUM` helpers cannot run inside a transaction block.
 
@@ -253,7 +267,36 @@ await db
 Notes:
 - Use `raw(...)` sparingly and only with trusted SQL fragments.
 - Keep user input as normal values (`where("email", value)`) so QueryMesh can bind it safely.
+- If you pass `raw(sql, params)`, QueryMesh rewrites portable `?` placeholders for the current SQL dialect inside the generated query.
 - `raw(...)` is for SQL dialects; it is not a Mongo query expression helper.
+
+### Raw select expressions
+
+Use `selectExpr(...)` when you want a trusted SQL expression in the `SELECT` list with a safe alias. Use `selectRaw(...)` when you already want to write the full select fragment yourself.
+
+```js
+const rows = await db
+  .table("users")
+  .select(["id"])
+  .selectExpr("LOWER(email)", "email_lower")
+  .selectRaw("CURRENT_TIMESTAMP AS loaded_at")
+  .get();
+```
+
+Portable placeholders also work inside builder expressions:
+
+```js
+const rows = await db
+  .table("users")
+  .select("id")
+  .selectExpr("COALESCE(?, email)", "effective_email", ["fallback@example.com"])
+  .get();
+```
+
+Notes:
+- `selectRaw(...)` and `selectExpr(...)` are SQL-only.
+- `selectExpr(sql, alias, params?)` safely quotes the alias for the current dialect.
+- `selectRaw(sql, params?)` inserts the fragment as-is, so the SQL itself must already be trusted.
 
 ### Full SQL query
 
@@ -504,6 +547,18 @@ const stats = await db
   .groupBy("status")
   .having("total", ">", 10)
   .orderBy("total", "desc")
+  .get();
+```
+
+For SQL expression control, use raw grouping / ordering helpers:
+
+```js
+const stats = await db
+  .table("orders")
+  .selectExpr("DATE(created_at)", "created_day")
+  .count("*", "total")
+  .groupByRaw("DATE(created_at)")
+  .orderByRaw("COUNT(*) DESC")
   .get();
 ```
 
@@ -786,6 +841,228 @@ await db.schema()
 await db.schema().dropView("active_users", { ifExists: true }).exec();
 ```
 
+### Functions
+
+```js
+await db.schema()
+  .createFunction({
+    name: "public.greet_user",
+    args: ["name text"],
+    returns: "text",
+    language: "plpgsql",
+    orReplace: true,
+    body: `
+BEGIN
+  RETURN 'Hello ' || name;
+END;
+    `.trim(),
+  })
+  .exec();
+
+await db.schema()
+  .dropFunction("public.greet_user", {
+    args: ["text"], // pg: use argument types for overloaded functions
+    ifExists: true,
+  })
+  .exec();
+```
+
+Notes:
+
+- Supported on `pg`, `mysql`, `mssql`, and `oracle`.
+- Not supported on MongoDB in QueryMesh.
+- Function bodies are dialect-specific and are passed through mostly as-is.
+- `createFunction({ orReplace: true })` is supported on `pg`, `mssql`, and `oracle`. MySQL requires dropping the function first.
+
+### Procedures
+
+```js
+await db.schema()
+  .createProcedure({
+    name: "public.refresh_rollup",
+    args: ["target_date date"],
+    language: "plpgsql",
+    orReplace: true,
+    body: `
+BEGIN
+  PERFORM refresh_rollup_for(target_date);
+END;
+    `.trim(),
+  })
+  .exec();
+
+await db.schema()
+  .dropProcedure("public.refresh_rollup", {
+    args: ["date"], // pg: use argument types for overloaded procedures
+    ifExists: true,
+  })
+  .exec();
+```
+
+Notes:
+
+- Supported on `pg`, `mysql`, `mssql`, and `oracle`.
+- Not supported on MongoDB in QueryMesh.
+- Procedure bodies are dialect-specific and are passed through mostly as-is.
+- `createProcedure({ orReplace: true })` is supported on `pg`, `mssql`, and `oracle`. MySQL requires dropping the procedure first.
+
+### Routine Calls
+
+Use `db.call(...)` for simple stored procedure calls and scalar function calls.
+
+```js
+await db.call("public.refresh_rollup", ["2026-01-01"]);
+
+const rows = await db.call("public.add_one", [41], {
+  kind: "function",
+  as: "value",
+});
+```
+
+Notes:
+
+- `db.call(...)` is SQL-only.
+- `OUT` / `INOUT` parameters are supported for procedure calls.
+- PostgreSQL maps procedure outputs from the returned row.
+- MySQL procedure outputs use session variables and require `config.multipleStatements = true`.
+- SQL Server and Oracle output params should provide a driver `type`.
+- For complex vendor-specific routine behavior, use `db.query(...)`.
+
+`OUT` / `INOUT` example:
+
+```js
+const result = await db.call("dbo.refresh_rollup", [
+  { mode: "in", name: "target_date", value: "2026-01-01" },
+  { mode: "out", name: "total", type: sql.Int },
+  { mode: "inout", name: "status", type: sql.VarChar, value: "queued" },
+]);
+
+console.log(result.out); // { total: ..., status: ... }
+```
+
+### Table-Valued / Set-Returning Functions
+
+Use `db.callTable(...)` when the routine returns rows.
+
+```js
+const rows = await db.callTable("public.list_active_users", [true]);
+```
+
+Notes:
+
+- Supported on PostgreSQL, SQL Server, and Oracle.
+- Not supported on MySQL or MongoDB.
+- `callTable(...)` does not accept `OUT` / `INOUT` params.
+
+### PostgreSQL Types
+
+Use `createType(...)` / `dropType(...)` for PostgreSQL enum or composite types.
+
+```js
+await db.schema()
+  .createType("public.order_status", {
+    kind: "enum",
+    values: ["pending", "paid", "cancelled"],
+  })
+  .exec();
+
+await db.schema()
+  .createType("public.address_t", {
+    kind: "composite",
+    fields: {
+      street: "text",
+      zip_code: "text",
+    },
+  }, { ifNotExists: true })
+  .exec();
+
+await db.schema()
+  .dropType("public.order_status", {
+    ifExists: true,
+    cascade: true,
+  })
+  .exec();
+```
+
+Notes:
+
+- `createType/dropType` are PostgreSQL-only.
+- `createType(name, ["a", "b"])` is shorthand for `AS ENUM ('a', 'b')`.
+- You can also pass a raw definition string like `AS RANGE (SUBTYPE = text)` when you need a lower-level PostgreSQL type definition.
+
+### Advanced PostgreSQL Aggregate Objects
+
+```js
+await db.schema()
+  .createAggregate({
+    name: "public.array_concat_agg",
+    args: ["anycompatiblearray"],
+    definition: {
+      SFUNC: "array_cat",
+      STYPE: "anycompatiblearray",
+      INITCOND: "{}",
+      PARALLEL: "SAFE",
+    },
+  })
+  .exec();
+
+await db.schema()
+  .dropAggregate("public.array_concat_agg", {
+    args: ["anycompatiblearray"],
+    ifExists: true,
+  })
+  .exec();
+```
+
+Notes:
+
+- `createAggregate/dropAggregate` are advanced PostgreSQL-only schema APIs.
+- They are not required for normal QueryMesh aggregate queries.
+- This API is intentionally low-level because custom aggregate objects are not portable across dialects.
+- For normal query aggregation, use `count`, `sum`, `avg`, `min`, and `max` on `QueryBuilder`.
+
+### Show Routines
+
+```js
+const functions = await db.schema().showFunctions();
+const procedures = await db.schema().showProcedures();
+const aggregates = await db.schema().showAggregates(); // PostgreSQL only
+```
+
+Optional schema filter:
+
+```js
+const pgPublicFunctions = await db.schema().showFunctions({ schema: "public" });
+```
+
+### Show Views, Triggers, and Indexes
+
+```js
+const views = await db.schema().showViews();
+const triggers = await db.schema().showTriggers({ table: "public.users" });
+const indexes = await db.schema().showIndexes("public.users");
+```
+
+Notes:
+
+- `showViews()` lists SQL views and Mongo view collections when the driver exposes them.
+- `showTriggers(...)` is SQL-only.
+- `showIndexes(name)` works for SQL tables and Mongo collections.
+
+### Show Schemas, Sequences, and Constraints
+
+```js
+const schemas = await db.schema().showSchemas();
+const sequences = await db.schema().showSequences({ schema: "public" });
+const constraints = await db.schema().showConstraints({ table: "public.users" });
+```
+
+Notes:
+
+- `showSchemas()` maps to schemas/namespaces for SQL dialects. On MySQL, schemas are databases.
+- `showSequences()` is supported on PostgreSQL, SQL Server, and Oracle.
+- `showConstraints()` is SQL-only.
+
 ### Show tables and databases
 
 ```js
@@ -815,6 +1092,8 @@ const publicUsers = await db.schema().getDesc("table", { name: "users", schema: 
 const deepDb = await db.schema().getDesc("database", { deep: true });
 const withScript = await db.schema().getDesc("users", { includeCreateSql: true });
 const dbScript = await db.schema().getDesc("database", { includeCreateSql: true });
+const richUsers = await db.schema().getDesc("users", { includeIndexes: true, includeTriggers: true });
+const richDb = await db.schema().getDesc("database", { includeIndexes: true, includeTriggers: true });
 
 // strict cross-dialect shape (same top-level keys for SQL + Mongo)
 const strictDb = await db.schema().getDesc("database", { strict: true });
@@ -969,6 +1248,8 @@ const db = await QueryMesh.connect({
 
 - `table(name)`
 - `query(sql, params?)`
+- `call(name, args?, opts?)`
+- `callTable(name, args?)`
 - `schema()`
 - `backup()`
 - `tools()`
@@ -984,7 +1265,7 @@ const db = await QueryMesh.connect({
 
 ### Module: `QueryBuilder`
 
-- Selection: `select`, `distinct`, `aggregate`, `count`, `sum`, `avg`, `min`, `max`
+- Selection: `select`, `selectRaw`, `selectExpr`, `distinct`, `aggregate`, `count`, `sum`, `avg`, `min`, `max`
 - Filtering: `where`, `orWhere`, `whereGroup`, `orWhereGroup`, `whereNot`, `orWhereNot`
 - Predicates: `whereIn`, `whereNotIn`, `whereBetween`, `whereNotBetween`, `whereNull`, `whereNotNull`, `whereIs`, `whereIsNot`
 - Quantified: `whereAny`, `whereAll`, `orWhereAny`, `orWhereAll`
@@ -992,19 +1273,23 @@ const db = await QueryMesh.connect({
 - Set operations: `union`, `unionAll`, `clearUnions`
 - Mutation: `insert`, `insertSelect`, `update`, `delete`
 - Upsert: `onConflictDoUpdate`, `onDuplicateKeyUpdate`
-- Result controls: `groupBy`, `having`, `orderBy`, `limit`, `offset`, `returning`
+- Result controls: `groupBy`, `groupByRaw`, `having`, `orderBy`, `orderByRaw`, `limit`, `offset`, `returning`
 - Execution: `compile`, `run`, `get`, `first`
 
 ### Module: `SchemaBuilder`
 
 - DDL: `createTable`, `alterTable`, `dropTable`, `renameTable`
 - Maintenance: `truncateTable`, `analyzeTable`, `optimizeTable`, `vacuumTable`, `vacuumDatabase`, `reindexTable`, `repairTable`
-- Databases: `createDatabase`, `dropDatabase`, `showDatabases`
+- Databases: `createDatabase`, `dropDatabase`, `showDatabases`, `showSchemas`, `showSequences`
 - PostgreSQL schema: `createSchema`, `dropSchema`
+- PostgreSQL types: `createType`, `dropType`
+- Functions: `createFunction`, `dropFunction`
+- Procedures: `createProcedure`, `dropProcedure`
+- Advanced PostgreSQL aggregate objects: `createAggregate`, `dropAggregate`
 - Views: `createView`, `dropView`
 - Triggers: `createTrigger`, `dropTrigger`
-- Introspection: `showTables`, `showDatabases`, `getDesc(target?, opts?)`
-- `getDesc` opts: `schema`, `deep`, `strict`, `includeViews`, `includeDatabases`, `sampleSize`, `includeCreateSql`
+- Introspection: `showTables`, `showDatabases`, `showSchemas`, `showSequences`, `showViews`, `showTriggers`, `showIndexes`, `showConstraints`, `showFunctions`, `showProcedures`, `showAggregates`, `getDesc(target?, opts?)`
+- `getDesc` opts: `schema`, `deep`, `strict`, `includeViews`, `includeDatabases`, `includeIndexes`, `includeTriggers`, `sampleSize`, `includeCreateSql`
 - Execute: `exec`
 
 ### Module: `MaintenanceManager`

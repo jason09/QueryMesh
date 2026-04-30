@@ -1,6 +1,7 @@
 import { Raw } from './Raw.js';
 import { Identifier } from './Identifier.js';
 import { quoteIdent, isPlainObject } from '../utils/identifiers.js';
+import { prepareRawSql } from '../utils/rawSql.js';
 
 /**
  * @typedef {'pg'|'mysql'|'mssql'|'oracle'|'mongo'} Dialect
@@ -40,11 +41,13 @@ export class QueryBuilder {
 
     this._type = 'select'; // select | insert | update | delete
     this._select = ['*'];
+    this._selectExtras = []; // [{ raw: Raw, as?: string|null }]
     this._aggregates = []; // [{ fn, column, as }]
     this._distinct = false;
     this._joins = [];
     this._wheres = [];
     this._groupBy = [];
+    this._groupByExtras = []; // Raw SQL GROUP BY expressions
     this._havings = [];
     this._orderBy = [];
     this._limit = null;
@@ -80,11 +83,22 @@ export class QueryBuilder {
    */
   pushValue(v, params) {
     if (isRaw(v)) {
-      params.push(...v.params);
-      return v.sql;
+      return this._compileRaw(v, params);
     }
     params.push(v);
     return this.adapter.placeholder(params.length);
+  }
+
+  /**
+   * Compile a trusted raw fragment and rewrite portable placeholders
+   * to the current SQL dialect.
+   * @param {Raw} rawValue
+   * @param {any[]} params
+   */
+  _compileRaw(rawValue, params) {
+    const prepared = prepareRawSql(this.dialect, rawValue.sql, rawValue.params, params.length);
+    params.push(...prepared.params);
+    return prepared.sql;
   }
 
   // ---------- Public fluent API (SELECT) ----------
@@ -96,6 +110,38 @@ export class QueryBuilder {
   select(cols = ['*']) {
     this._type = 'select';
     this._select = Array.isArray(cols) ? cols : [cols];
+    this._selectExtras = [];
+    return this;
+  }
+
+  /**
+   * Append a trusted raw SQL select expression.
+   * SQL only.
+   *
+   * @param {string|Raw} sql
+   * @param {any[]} [params]
+   */
+  selectRaw(sql, params = []) {
+    this._type = 'select';
+    const fragment = isRaw(sql) ? sql : new Raw(sql, params);
+    this._selectExtras.push({ raw: fragment, as: null });
+    return this;
+  }
+
+  /**
+   * Append a trusted SQL select expression with a safe alias.
+   * SQL only.
+   *
+   * @param {string|Raw} sql
+   * @param {string} as
+   * @param {any[]} [params]
+   */
+  selectExpr(sql, as, params = []) {
+    const alias = String(as ?? '').trim();
+    if (!alias) throw new Error('selectExpr() requires an alias');
+    this._type = 'select';
+    const fragment = isRaw(sql) ? sql : new Raw(sql, params);
+    this._selectExtras.push({ raw: fragment, as: alias });
     return this;
   }
 
@@ -641,6 +687,19 @@ clearAggregates() {
   }
 
   /**
+   * Append a trusted raw SQL GROUP BY expression.
+   * SQL only.
+   *
+   * @param {string|Raw} sql
+   * @param {any[]} [params]
+   */
+  groupByRaw(sql, params = []) {
+    const fragment = isRaw(sql) ? sql : new Raw(sql, params);
+    this._groupByExtras.push(fragment);
+    return this;
+  }
+
+  /**
    * HAVING.
    * @param {string|Raw} column
    * @param {string} op
@@ -662,6 +721,19 @@ clearAggregates() {
       throw new Error(`Invalid order direction: ${direction}`);
     }
     this._orderBy.push({ column, direction: dir });
+    return this;
+  }
+
+  /**
+   * Append a trusted raw SQL ORDER BY expression.
+   * SQL only.
+   *
+   * @param {string|Raw} sql
+   * @param {any[]} [params]
+   */
+  orderByRaw(sql, params = []) {
+    const fragment = isRaw(sql) ? sql : new Raw(sql, params);
+    this._orderBy.push({ raw: fragment });
     return this;
   }
 
@@ -838,6 +910,14 @@ clearAggregates() {
     // regular columns
     selectParts.push(...baseCols.map(c => this.q(c)));
 
+    // trusted raw/expression selections
+    if (this._selectExtras.length) {
+      for (const item of this._selectExtras) {
+        const alias = item.as ? ` AS ${quoteIdent(this.dialect, item.as)}` : '';
+        selectParts.push(`${this._compileRaw(item.raw, params)}${alias}`);
+      }
+    }
+
     // aggregates (COUNT/SUM/AVG/MIN/MAX)
     if (this._aggregates.length) {
       for (const a of this._aggregates) {
@@ -861,14 +941,18 @@ clearAggregates() {
 
     sql += this._compileWhere(params);
 
-    if (this._groupBy.length) {
-      sql += ` GROUP BY ${this._groupBy.map(c => this.q(c)).join(', ')}`;
+    if (this._groupBy.length || this._groupByExtras.length) {
+      const groupParts = [
+        ...this._groupBy.map(c => this.q(c)),
+        ...this._groupByExtras.map(r => this._compileRaw(r, params)),
+      ];
+      sql += ` GROUP BY ${groupParts.join(', ')}`;
     }
 
     if (this._havings.length) {
       const parts = [];
       for (const h of this._havings) {
-        const left = isRaw(h.column) ? h.column.sql : this.q(h.column);
+        const left = isRaw(h.column) ? this._compileRaw(h.column, params) : this.q(h.column);
         const right = this.pushValue(h.value, params);
         parts.push(`${parts.length ? h.bool + ' ' : ''}${left} ${h.op} ${right}`);
       }
@@ -876,7 +960,10 @@ clearAggregates() {
     }
 
     if (this._orderBy.length) {
-      sql += ` ORDER BY ${this._orderBy.map(o => `${this.q(o.column)} ${String(o.direction).toUpperCase()}`).join(', ')}`;
+      sql += ` ORDER BY ${this._orderBy.map((o) => {
+        if (o.raw) return this._compileRaw(o.raw, params);
+        return `${this.q(o.column)} ${String(o.direction).toUpperCase()}`;
+      }).join(', ')}`;
     }
 
     const limit = this._limit != null ? Math.max(0, this._limit) : null;
@@ -1083,8 +1170,7 @@ clearAggregates() {
 
   _compileSelectSource(source, params, ctx = 'source') {
     if (isRaw(source)) {
-      params.push(...source.params);
-      return source.sql;
+      return this._compileRaw(source, params);
     }
     if (typeof source === 'string') {
       return source;
@@ -1128,8 +1214,7 @@ clearAggregates() {
 
   _compileIsValue(value, params) {
     if (isRaw(value)) {
-      params.push(...value.params);
-      return value.sql;
+      return this._compileRaw(value, params);
     }
     if (value == null) return 'NULL';
     if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
@@ -1191,13 +1276,13 @@ clearAggregates() {
       }
 
       if (w.kind === 'basic') {
-        const left = isRaw(w.column) ? w.column.sql : this.q(w.column);
+        const left = isRaw(w.column) ? this._compileRaw(w.column, params) : this.q(w.column);
         const right = this.pushValue(w.value, params);
         parts.push(`${prefix}${left} ${w.op} ${right}`);
       }
 
       if (w.kind === 'quantified') {
-        const left = isRaw(w.column) ? w.column.sql : this.q(w.column);
+        const left = isRaw(w.column) ? this._compileRaw(w.column, params) : this.q(w.column);
         if (Array.isArray(w.value) && this.dialect !== 'pg') {
           const expanded = this._compileQuantifiedArrayExpr(left, w.op, w.quantifier, w.value, params);
           parts.push(`${prefix}${expanded}`);
@@ -1208,7 +1293,7 @@ clearAggregates() {
       }
 
       if (w.kind === 'is') {
-        const left = isRaw(w.column) ? w.column.sql : this.q(w.column);
+        const left = isRaw(w.column) ? this._compileRaw(w.column, params) : this.q(w.column);
         const right = this._compileIsValue(w.value, params);
         parts.push(`${prefix}${left} IS ${w.not ? 'NOT ' : ''}${right}`);
       }
@@ -1249,6 +1334,13 @@ clearAggregates() {
     // - Joins ($lookup/$unwind), OR filters, groupBy/having/aggregates -> aggregate(pipeline)
 
     const collection = this._table;
+
+    if (this._selectExtras.length) {
+      throw new Error('mongo: selectRaw/selectExpr is not supported');
+    }
+    if (this._groupByExtras.length || this._orderBy.some(o => o.raw)) {
+      throw new Error('mongo: groupByRaw/orderByRaw is not supported');
+    }
 
     if (this._unions.length) {
       if (this._type !== 'select') {

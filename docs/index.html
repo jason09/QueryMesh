@@ -622,7 +622,7 @@ const db = await QueryMesh.connect({
           </article>
           <article class="card">
             <h3>Raw SQL</h3>
-            <p>Use <code>raw(...)</code> for trusted SQL expressions that should not be quoted or bound as plain values.</p>
+            <p>Use <code>raw(...)</code>, <code>selectRaw(...)</code>, or <code>selectExpr(...)</code> for trusted SQL expressions inside the builder.</p>
           </article>
           <article class="card">
             <h3>Full SQL</h3>
@@ -670,16 +670,12 @@ const db = await QueryMesh.connect({
             </div>
             <pre><code>import { raw } from "querymesh";
 
-const user = await db
+const rows = await db
   .table("users")
+  .select("id")
+  .selectExpr("LOWER(email)", "email_lower")
   .where(raw("LOWER(email)"), "alice@example.com")
-  .first();
-
-await db
-  .table("posts")
-  .update({ updated_at: raw("CURRENT_TIMESTAMP") })
-  .where("id", postId)
-  .run();</code></pre>
+  .get();</code></pre>
           </article>
 
           <article class="code-card">
@@ -878,6 +874,48 @@ const first = await UserModel
               <td>MySQL and Oracle do not have the same native behavior.</td>
             </tr>
             <tr>
+              <td>Functions</td>
+              <td>Supported on pg/mysql/mssql/oracle</td>
+              <td>No</td>
+              <td><code>createFunction</code>/<code>dropFunction</code> are SQL-only and routine bodies stay dialect-specific.</td>
+            </tr>
+            <tr>
+              <td>Procedures</td>
+              <td>Supported on pg/mysql/mssql/oracle</td>
+              <td>No</td>
+              <td><code>createProcedure</code>/<code>dropProcedure</code> plus <code>db.call(...)</code> for simple execution.</td>
+            </tr>
+            <tr>
+              <td>Table-valued / set-returning functions</td>
+              <td>pg, mssql, oracle</td>
+              <td>No</td>
+              <td>Use <code>db.callTable(...)</code> when the routine returns rows.</td>
+            </tr>
+            <tr>
+              <td>Raw select expressions</td>
+              <td>Yes</td>
+              <td>No</td>
+              <td>Use <code>selectRaw(...)</code> or <code>selectExpr(...)</code> for trusted SQL expressions in the select list.</td>
+            </tr>
+            <tr>
+              <td>Custom aggregate objects</td>
+              <td>PostgreSQL only</td>
+              <td>No</td>
+              <td><code>createAggregate</code>/<code>dropAggregate</code> are advanced PostgreSQL-only schema helpers, not part of normal query-time aggregation.</td>
+            </tr>
+            <tr>
+              <td>PostgreSQL types</td>
+              <td>PostgreSQL only</td>
+              <td>No</td>
+              <td><code>createType</code>/<code>dropType</code> support enum, composite, and low-level PostgreSQL type definitions.</td>
+            </tr>
+            <tr>
+              <td>Catalog helpers</td>
+              <td><code>showSchemas</code>/<code>showConstraints</code> on pg/mysql/mssql/oracle; <code>showSequences</code> on pg/mssql/oracle</td>
+              <td>No</td>
+              <td>MySQL has no portable sequence objects, so <code>showSequences()</code> is not supported there.</td>
+            </tr>
+            <tr>
               <td>Views and triggers</td>
               <td>Supported where the dialect supports them</td>
               <td>No</td>
@@ -891,9 +929,9 @@ const first = await UserModel
             </tr>
             <tr>
               <td>Schema introspection</td>
-              <td>Tables, columns, views, create SQL</td>
-              <td>Collections and sampled structure</td>
-              <td>Use <code>schema().getDesc(...)</code> for normalized descriptions.</td>
+              <td>Tables, columns, views, triggers, indexes, create SQL</td>
+              <td>Collections, view collections, indexes, sampled structure</td>
+              <td>Use <code>showViews</code>, <code>showTriggers</code>, <code>showIndexes</code>, and <code>schema().getDesc(...)</code> for normalized descriptions.</td>
             </tr>
           </tbody>
         </table>
@@ -913,15 +951,15 @@ const first = await UserModel
           </article>
           <article class="card">
             <h3>DB</h3>
-            <p><code>table</code>, <code>query</code>, <code>schema</code>, <code>maintenance</code>, <code>backup</code>, <code>tools</code>, <code>transaction</code>, <code>model</code>, <code>close</code></p>
+            <p><code>table</code>, <code>query</code>, <code>call</code>, <code>callTable</code>, <code>schema</code>, <code>maintenance</code>, <code>backup</code>, <code>tools</code>, <code>transaction</code>, <code>model</code>, <code>close</code></p>
           </article>
           <article class="card">
             <h3>QueryBuilder</h3>
-            <p><code>select</code>, <code>where</code>, <code>joinAs</code>, <code>insert</code>, <code>update</code>, <code>delete</code>, <code>returning</code>, <code>get</code>, <code>run</code></p>
+            <p><code>select</code>, <code>selectRaw</code>, <code>selectExpr</code>, <code>groupByRaw</code>, <code>orderByRaw</code>, <code>where</code>, <code>joinAs</code>, <code>insert</code>, <code>update</code>, <code>delete</code>, <code>returning</code>, <code>get</code>, <code>run</code></p>
           </article>
           <article class="card">
             <h3>SchemaBuilder</h3>
-            <p><code>createTable</code>, <code>dropTable</code>, <code>truncateTable</code>, <code>vacuumTable</code>, <code>reindexTable</code>, <code>repairTable</code>, <code>getDesc</code></p>
+            <p><code>createTable</code>, <code>createType</code>, <code>createFunction</code>, <code>createProcedure</code>, <code>showSchemas</code>, <code>showSequences</code>, <code>showViews</code>, <code>showTriggers</code>, <code>showIndexes</code>, <code>getDesc</code></p>
           </article>
           <article class="card">
             <h3>BaseModel</h3>

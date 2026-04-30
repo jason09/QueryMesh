@@ -451,6 +451,7 @@ const db = await QueryMesh.connect({
               <p class="signature"><code>raw(sql: string, params?: any[]): Raw</code></p>
               <p>Creates a raw SQL fragment or raw source for places where QueryMesh accepts raw expressions. Use it when the fragment should be inserted into generated SQL instead of quoted as an identifier or bound as a plain value.</p>
               <p>Use <code>raw(...)</code> sparingly and only with trusted SQL fragments. Keep user input as normal QueryMesh values whenever possible.</p>
+              <p>Portable <code>?</code> placeholders inside <code>raw(sql, params)</code> are rewritten for the active SQL dialect when the builder compiles.</p>
               <p>For full manual SQL execution, use <code>db.query(...)</code> instead of <code>raw(...)</code>.</p>
               <p>Rule of thumb: <code>raw(...)</code> is part of a generated QueryMesh query; <code>db.query(...)</code> is the whole SQL query.</p>
             </div>
@@ -544,6 +545,16 @@ const id = toObjectIdSync(payload.userId, ObjectId);</code></pre>
                 <td><code>query(sql, params?)</code></td>
                 <td>Executes full raw SQL and returns a rows array with <code>.rows</code> and <code>.rowCount</code>. SQL dialects only. Portable <code>?</code> placeholders are rewritten for the current dialect.</td>
                 <td><code>await db.query("SELECT * FROM users WHERE id = ?", [id])</code></td>
+              </tr>
+              <tr>
+                <td><code>call(name, args?, opts?)</code></td>
+                <td>Calls a stored procedure or scalar function. SQL-only. Supports simple <code>IN</code> params and procedure <code>OUT</code>/<code>INOUT</code> descriptors.</td>
+                <td><code>await db.call("public.refresh_rollup", ["2026-01-01"])</code></td>
+              </tr>
+              <tr>
+                <td><code>callTable(name, args?)</code></td>
+                <td>Calls a set-returning or table-valued function and returns rows.</td>
+                <td><code>await db.callTable("public.list_active_users", [true])</code></td>
               </tr>
               <tr>
                 <td><code>raw(sql, params?)</code></td>
@@ -643,19 +654,20 @@ const id = toObjectIdSync(payload.userId, ObjectId);</code></pre>
           <article class="method">
             <div class="method-body">
               <h3>Selection</h3>
-              <p class="signature"><code>select, distinct, aggregate, count, sum, avg, min, max, clearAggregates</code></p>
-              <p>Choose returned columns and aggregate values.</p>
+              <p class="signature"><code>select, selectRaw, selectExpr, distinct, aggregate, count, sum, avg, min, max, clearAggregates</code></p>
+              <p>Choose returned columns, trusted SQL select expressions, and aggregate values.</p>
             </div>
             <div class="code-card">
               <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
-              <pre><code>const stats = await db
-  .table("orders")
-  .select("status")
-  .count("*", "total")
-  .min("amount", "min_amount")
-  .max("amount", "max_amount")
-  .groupBy("status")
+              <pre><code>const rows = await db
+  .table("users")
+  .select("id")
+  .selectExpr("LOWER(email)", "email_lower")
+  .selectRaw("CURRENT_TIMESTAMP AS loaded_at")
   .get();</code></pre>
+            </div>
+            <div class="method-body">
+              <p>Use <code>selectExpr(sql, alias, params?)</code> when you want QueryMesh to quote the alias safely. Use <code>selectRaw(sql, params?)</code> when you want to provide the full select fragment yourself.</p>
             </div>
           </article>
 
@@ -798,17 +810,17 @@ const rows = await q1.unionAll(q2).get();</code></pre>
           <article class="method">
             <div class="method-body">
               <h3>Result controls</h3>
-              <p class="signature"><code>groupBy, having, orderBy, limit, offset</code></p>
-              <p>Control grouping, aggregate filters, ordering, and pagination.</p>
+              <p class="signature"><code>groupBy, groupByRaw, having, orderBy, orderByRaw, limit, offset</code></p>
+              <p>Control grouping, aggregate filters, ordering, and pagination. <code>groupByRaw</code> and <code>orderByRaw</code> are SQL-only helpers for trusted expressions.</p>
             </div>
             <div class="code-card">
               <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
-              <pre><code>const page = await db
-  .table("posts")
-  .where("status", "published")
-  .orderBy("created_at", "desc")
-  .offset(20)
-  .limit(10)
+              <pre><code>const stats = await db
+  .table("orders")
+  .selectExpr("DATE(created_at)", "created_day")
+  .count("*", "total")
+  .groupByRaw("DATE(created_at)")
+  .orderByRaw("COUNT(*) DESC")
   .get();</code></pre>
             </div>
           </article>
@@ -884,13 +896,189 @@ await db.maintenance().repairTable("legacy_cache");</code></pre>
           <article class="method">
             <div class="method-body">
               <h3>Databases and schemas</h3>
-              <p class="signature"><code>createDatabase, dropDatabase, showDatabases, createSchema, dropSchema</code></p>
+              <p class="signature"><code>createDatabase, dropDatabase, showDatabases, showSchemas, showSequences, createSchema, dropSchema</code></p>
               <p>Create/drop databases where supported, list databases, and manage PostgreSQL schemas.</p>
             </div>
             <div class="code-card">
               <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
               <pre><code>await db.schema().createDatabase("analytics", { ifNotExists: true }).exec();
-const names = await db.schema().showDatabases();</code></pre>
+const names = await db.schema().showDatabases();
+const schemas = await db.schema().showSchemas();
+const sequences = await db.schema().showSequences({ schema: "public" });</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Constraint and index introspection</h3>
+              <p class="signature"><code>showViews, showTriggers, showIndexes, showConstraints</code></p>
+              <p>List visible view, trigger, index, and constraint names. <code>showConstraints(...)</code> is SQL-only. <code>showIndexes(...)</code> also works for Mongo collections.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const views = await db.schema().showViews();
+const triggers = await db.schema().showTriggers({ table: "public.users" });
+const indexes = await db.schema().showIndexes("public.users");
+const constraints = await db.schema().showConstraints({ table: "public.users" });</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Routine introspection</h3>
+              <p class="signature"><code>showFunctions, showProcedures, showAggregates</code></p>
+              <p>List routines visible to the current connection. <code>showAggregates</code> is PostgreSQL-only and mainly relevant when you also use advanced PostgreSQL aggregate-object DDL.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const functions = await db.schema().showFunctions();
+const procedures = await db.schema().showProcedures();
+const aggregates = await db.schema().showAggregates(); // PostgreSQL only</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>PostgreSQL types</h3>
+              <p class="signature"><code>createType, dropType</code></p>
+              <p>Create and drop PostgreSQL enum, composite, or low-level custom types. This API is intentionally PostgreSQL-only.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>await db.schema().createType("public.order_status", {
+  kind: "enum",
+  values: ["pending", "paid", "cancelled"],
+}).exec();
+
+await db.schema().createType("public.address_t", {
+  kind: "composite",
+  fields: {
+    street: "text",
+    zip_code: "text",
+  },
+}, { ifNotExists: true }).exec();
+
+await db.schema().dropType("public.order_status", {
+  ifExists: true,
+  cascade: true,
+}).exec();</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Functions</h3>
+              <p class="signature"><code>createFunction, dropFunction</code></p>
+              <p>Create and drop SQL functions on <code>pg</code>, <code>mysql</code>, <code>mssql</code>, and <code>oracle</code>. The routine body remains dialect-specific and is passed through mostly as-is.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>await db.schema().createFunction({
+  name: "public.greet_user",
+  args: ["name text"],
+  returns: "text",
+  language: "plpgsql",
+  orReplace: true,
+  body: `
+BEGIN
+  RETURN 'Hello ' || name;
+END;
+  `.trim(),
+}).exec();
+
+await db.schema().dropFunction("public.greet_user", {
+  args: ["text"],
+  ifExists: true,
+}).exec();</code></pre>
+            </div>
+            <div class="method-body">
+              <p><code>orReplace</code> is supported on PostgreSQL, SQL Server, and Oracle. MySQL requires dropping the function first.</p>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Procedures and routine calls</h3>
+              <p class="signature"><code>createProcedure, dropProcedure</code> and <code>db.call(name, args?, opts?)</code></p>
+              <p>Create and drop SQL procedures on <code>pg</code>, <code>mysql</code>, <code>mssql</code>, and <code>oracle</code>. Use <code>db.call(...)</code> for simple procedure execution or scalar function calls.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>await db.schema().createProcedure({
+  name: "public.refresh_rollup",
+  args: ["target_date date"],
+  language: "plpgsql",
+  orReplace: true,
+  body: `
+BEGIN
+  PERFORM refresh_rollup_for(target_date);
+END;
+  `.trim(),
+}).exec();
+
+await db.call("public.refresh_rollup", ["2026-01-01"]);
+
+const rows = await db.call("public.add_one", [41], {
+  kind: "function",
+  as: "value",
+});</code></pre>
+            </div>
+            <div class="method-body">
+              <p><code>db.call(...)</code> supports <code>OUT</code>/<code>INOUT</code> procedure params using descriptor objects. MySQL requires <code>multipleStatements = true</code>; SQL Server and Oracle should provide a driver <code>type</code> for output params.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>OUT params</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const result = await db.call("dbo.refresh_rollup", [
+  { mode: "in", name: "target_date", value: "2026-01-01" },
+  { mode: "out", name: "total", type: sql.Int },
+  { mode: "inout", name: "status", type: sql.VarChar, value: "queued" },
+]);
+
+console.log(result.out);</code></pre>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Table-valued / set-returning functions</h3>
+              <p class="signature"><code>db.callTable(name, args?)</code></p>
+              <p>Execute routines that return rows directly. Supported on PostgreSQL set-returning functions, SQL Server table-valued functions, and Oracle table/pipelined functions.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const rows = await db.callTable("public.list_active_users", [true]);</code></pre>
+            </div>
+            <div class="method-body">
+              <p>MySQL does not support table-valued functions with this helper. <code>callTable(...)</code> does not accept <code>OUT</code>/<code>INOUT</code> params.</p>
+            </div>
+          </article>
+
+          <article class="method">
+            <div class="method-body">
+              <h3>Advanced PostgreSQL aggregate objects</h3>
+              <p class="signature"><code>createAggregate, dropAggregate</code></p>
+              <p>Create and drop PostgreSQL custom aggregate objects. This is an advanced PostgreSQL schema API, not a requirement for normal QueryMesh aggregate queries.</p>
+            </div>
+            <div class="code-card">
+              <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>await db.schema().createAggregate({
+  name: "public.array_concat_agg",
+  args: ["anycompatiblearray"],
+  definition: {
+    SFUNC: "array_cat",
+    STYPE: "anycompatiblearray",
+    INITCOND: "{}",
+    PARALLEL: "SAFE",
+  },
+}).exec();
+
+await db.schema().dropAggregate("public.array_concat_agg", {
+  args: ["anycompatiblearray"],
+  ifExists: true,
+}).exec();</code></pre>
+            </div>
+            <div class="method-body">
+              <p>For normal query-time aggregation, use <code>count</code>, <code>sum</code>, <code>avg</code>, <code>min</code>, and <code>max</code> on <code>QueryBuilder</code>. Use <code>createAggregate</code>/<code>dropAggregate</code> only when you need reusable PostgreSQL aggregate objects in the database itself.</p>
             </div>
           </article>
 
@@ -898,7 +1086,7 @@ const names = await db.schema().showDatabases();</code></pre>
             <div class="method-body">
               <h3>Views</h3>
               <p class="signature"><code>createView, dropView</code></p>
-              <p>Create and drop SQL views. MongoDB views are not supported by QueryMesh schema APIs.</p>
+              <p>Create and drop SQL views. These DDL helpers are SQL-only, but <code>showViews()</code> can still list Mongo view collections when the driver exposes them.</p>
             </div>
             <div class="code-card">
               <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
@@ -913,8 +1101,8 @@ await db.schema()
           <article class="method">
             <div class="method-body">
               <h3>Triggers</h3>
-              <p class="signature"><code>createTrigger, dropTrigger</code></p>
-              <p>Create/drop triggers for SQL dialects. MongoDB triggers are not supported in QueryMesh.</p>
+              <p class="signature"><code>createTrigger, dropTrigger, showTriggers</code></p>
+              <p>Create/drop triggers for SQL dialects and list visible triggers with <code>showTriggers(...)</code>. MongoDB triggers are not supported in QueryMesh.</p>
             </div>
             <div class="code-card">
               <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
@@ -926,20 +1114,33 @@ await db.schema()
   body: "NEW.updated_at = CURRENT_TIMESTAMP;",
 }).exec();</code></pre>
             </div>
+            <div class="code-card">
+              <div class="code-head"><span>Introspection</span><button class="copy" data-copy>Copy</button></div>
+              <pre><code>const triggers = await db.schema().showTriggers({ table: "public.users" });</code></pre>
+            </div>
           </article>
 
           <article class="method wide">
             <div class="method-body">
               <h3>Introspection</h3>
-              <p class="signature"><code>showTables, showDatabases, getDesc(target?, opts?), exec</code></p>
-              <p>List tables/databases and return normalized table/database structure. <code>includeCreateSql</code> can include formatted creation scripts where supported.</p>
+              <p class="signature"><code>showTables, showDatabases, showSchemas, showSequences, showViews, showTriggers, showIndexes, showConstraints, showFunctions, showProcedures, showAggregates, getDesc(target?, opts?), exec</code></p>
+              <p>List schema objects and return normalized table/database structure. <code>includeCreateSql</code> can include formatted creation scripts where supported.</p>
             </div>
             <div class="code-card">
               <div class="code-head"><span>Example</span><button class="copy" data-copy>Copy</button></div>
               <pre><code>const tables = await db.schema().showTables();
+const schemas = await db.schema().showSchemas();
+const sequences = await db.schema().showSequences({ schema: "public" });
+const views = await db.schema().showViews();
+const triggers = await db.schema().showTriggers({ table: "public.users" });
+const indexes = await db.schema().showIndexes("public.users");
+const constraints = await db.schema().showConstraints({ table: "public.users" });
+const functions = await db.schema().showFunctions();
 
 const tableDesc = await db.schema().getDesc("users", {
   strict: true,
+  includeIndexes: true,
+  includeTriggers: true,
   includeCreateSql: true,
 });
 

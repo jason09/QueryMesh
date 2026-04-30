@@ -139,12 +139,15 @@ export interface RawQueryResult<T = any> extends Array<T> {
   insertId?: any;
   rowsAffected?: number[];
   recordset?: T[];
+  out?: Record<string, any>;
   raw?: any;
 }
 
 export class QueryBuilder {
   where(fn: (q: QueryBuilder) => any): this;
   select(cols?: string[] | string): this;
+  selectRaw(sql: string | Raw, params?: any[]): this;
+  selectExpr(sql: string | Raw, as: string, params?: any[]): this;
   distinct(): this;
   union(source: QueryBuilder | Raw | string): this;
   unionAll(source: QueryBuilder | Raw | string): this;
@@ -199,8 +202,10 @@ export class QueryBuilder {
   whereNull(column: string): this;
   whereNotNull(column: string): this;
   groupBy(cols: string[] | string): this;
+  groupByRaw(sql: string | Raw, params?: any[]): this;
   having(column: string | Raw, op: string, value: any): this;
   orderBy(column: string, direction?: "asc" | "desc"): this;
+  orderByRaw(sql: string | Raw, params?: any[]): this;
   limit(n: number): this;
   offset(n: number): this;
   returning(cols: string[] | string): this;
@@ -274,6 +279,8 @@ export interface TableDesc {
   name: string | null;
   schema: string | null;
   columns: DescColumn[];
+  indexes?: string[];
+  triggers?: string[];
   sampleSize?: number | null;
   sampledDocuments?: number | null;
   createSql?: string | null;
@@ -299,6 +306,8 @@ export interface GetDescOptions {
   strict?: boolean;
   includeViews?: boolean;
   includeDatabases?: boolean;
+  includeIndexes?: boolean;
+  includeTriggers?: boolean;
   includeCreateSql?: boolean;
   sampleSize?: number;
   name?: string;
@@ -342,7 +351,106 @@ export interface RepairTableOptions {
   local?: boolean;
 }
 
+export interface CreateFunctionOptions {
+  name: string;
+  args?: string | string[];
+  returns: string;
+  body: string;
+  language?: string;
+  orReplace?: boolean;
+  deterministic?: boolean;
+}
+
+export interface DropFunctionOptions {
+  args?: string | string[];
+  ifExists?: boolean;
+  cascade?: boolean;
+}
+
+export interface CreateProcedureOptions {
+  name: string;
+  args?: string | string[];
+  body: string;
+  language?: string;
+  orReplace?: boolean;
+}
+
+export interface DropProcedureOptions {
+  args?: string | string[];
+  ifExists?: boolean;
+  cascade?: boolean;
+}
+
+export interface CreateAggregateOptions {
+  name: string;
+  args?: string | string[];
+  definition: string | Record<string, any>;
+}
+
+export interface DropAggregateOptions {
+  args?: string | string[];
+  ifExists?: boolean;
+  cascade?: boolean;
+}
+
+export interface CreateTypeDefinition {
+  kind?: "enum" | "composite";
+  values?: any[];
+  enum?: any[];
+  fields?: Record<string, string> | string[];
+  composite?: Record<string, string> | string[];
+  definition?: string;
+  raw?: string;
+}
+
+export interface CreateTypeOptions {
+  ifNotExists?: boolean;
+}
+
+export interface DropTypeOptions {
+  ifExists?: boolean;
+  cascade?: boolean;
+}
+
+export interface ScopedSchemaOptions {
+  schema?: string;
+}
+
+export interface ShowTriggersOptions extends ScopedSchemaOptions {
+  table?: string;
+}
+
+export interface ShowSchemasOptions {
+  includeSystem?: boolean;
+}
+
+export interface ShowConstraintsOptions extends ScopedSchemaOptions {
+  table?: string;
+  type?: string;
+}
+
+export interface RoutineCallOptions {
+  kind?: "procedure" | "function";
+  as?: string;
+}
+
+export interface RoutineParam {
+  mode?: "in" | "out" | "inout";
+  value?: any;
+  name?: string;
+  type?: any;
+  size?: number;
+}
+
 export class SchemaBuilder {
+  createType(name: string, definition: string | any[] | CreateTypeDefinition, opts?: CreateTypeOptions): this;
+  dropType(name: string, opts?: DropTypeOptions): this;
+  createFunction(def: CreateFunctionOptions): this;
+  dropFunction(name: string, opts?: DropFunctionOptions): this;
+  createProcedure(def: CreateProcedureOptions): this;
+  dropProcedure(name: string, opts?: DropProcedureOptions): this;
+  createAggregate(def: CreateAggregateOptions): this;
+  dropAggregate(name: string, opts?: DropAggregateOptions): this;
   truncateTable(name: string, opts?: TruncateTableOptions): this;
   analyzeTable(name: string, opts?: AnalyzeTableOptions): this;
   optimizeTable(name: string, opts?: OptimizeTableOptions): this;
@@ -350,8 +458,17 @@ export class SchemaBuilder {
   vacuumDatabase(opts?: VacuumOptions): this;
   reindexTable(name: string, opts?: ReindexTableOptions): this;
   repairTable(name: string, opts?: RepairTableOptions): this;
-  showTables(opts?: { schema?: string }): Promise<string[]>;
+  showTables(opts?: ScopedSchemaOptions): Promise<string[]>;
   showDatabases(): Promise<string[]>;
+  showSchemas(opts?: ShowSchemasOptions): Promise<string[]>;
+  showSequences(opts?: ScopedSchemaOptions): Promise<string[]>;
+  showViews(opts?: ScopedSchemaOptions): Promise<string[]>;
+  showTriggers(opts?: ShowTriggersOptions): Promise<string[]>;
+  showIndexes(name: string, opts?: ScopedSchemaOptions): Promise<string[]>;
+  showConstraints(opts?: ShowConstraintsOptions): Promise<string[]>;
+  showFunctions(opts?: ScopedSchemaOptions): Promise<string[]>;
+  showProcedures(opts?: ScopedSchemaOptions): Promise<string[]>;
+  showAggregates(opts?: ScopedSchemaOptions): Promise<string[]>;
   getDesc(target?: any, opts?: GetDescOptions | any): Promise<TableDesc | DatabaseDesc | any>;
   exec(): Promise<any>;
 }
@@ -373,6 +490,8 @@ export class DB {
   id(name: string): Identifier;
   quote(name: string): string;
   query<T = any>(sql: string, params?: any[]): Promise<RawQueryResult<T>>;
+  call<T = any>(name: string, args?: Array<RoutineParam | any> | any, opts?: RoutineCallOptions): Promise<RawQueryResult<T>>;
+  callTable<T = any>(name: string, args?: Array<RoutineParam | any> | any): Promise<RawQueryResult<T>>;
   /** @deprecated Raw SQL exec is disabled. Use query(sql, params) instead. */
   exec(sql: string, params?: any[]): Promise<never>;
   schema(): any;

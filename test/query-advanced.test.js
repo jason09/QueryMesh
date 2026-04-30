@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { QueryBuilder } from "../src/core/QueryBuilder.js";
+import { raw } from "../src/core/Raw.js";
 
 function fakeAdapter(dialect) {
   return {
@@ -116,6 +117,63 @@ test("MIN/MAX aggregates compile", () => {
   );
 });
 
+test("selectRaw/selectExpr compile trusted SQL expressions", () => {
+  const out = new QueryBuilder(fakeAdapter("pg"), "users")
+    .select(["id"])
+    .selectExpr("LOWER(email)", "email_lower")
+    .selectRaw(raw("CURRENT_TIMESTAMP AS now_at"))
+    .where("active", true)
+    .compile();
+
+  assert.equal(
+    out.sql,
+    'SELECT "id", LOWER(email) AS "email_lower", CURRENT_TIMESTAMP AS now_at FROM "users" WHERE "active" = $1',
+  );
+  assert.deepEqual(out.params, [true]);
+});
+
+test("selectRaw carries bound params in SQL dialects", () => {
+  const out = new QueryBuilder(fakeAdapter("pg"), "users")
+    .select("id")
+    .selectExpr("COALESCE(?, email)", "effective_email", ["fallback@example.com"])
+    .compile();
+
+  assert.equal(
+    out.sql,
+    'SELECT "id", COALESCE($1, email) AS "effective_email" FROM "users"',
+  );
+  assert.deepEqual(out.params, ["fallback@example.com"]);
+});
+
+test("groupByRaw/orderByRaw compile trusted SQL expressions", () => {
+  const out = new QueryBuilder(fakeAdapter("pg"), "orders")
+    .selectExpr("DATE(created_at)", "created_day")
+    .count("*", "total")
+    .groupByRaw("DATE(created_at)")
+    .orderByRaw("COUNT(*) DESC")
+    .compile();
+
+  assert.equal(
+    out.sql,
+    'SELECT DATE(created_at) AS "created_day", COUNT(*) AS "total" FROM "orders" GROUP BY DATE(created_at) ORDER BY COUNT(*) DESC',
+  );
+  assert.deepEqual(out.params, []);
+});
+
+test("groupByRaw/orderByRaw rewrite portable placeholders", () => {
+  const out = new QueryBuilder(fakeAdapter("pg"), "orders")
+    .select("status")
+    .groupByRaw("COALESCE(?, status)", ["unknown"])
+    .orderByRaw("CASE WHEN status = ? THEN 0 ELSE 1 END", ["paid"])
+    .compile();
+
+  assert.equal(
+    out.sql,
+    'SELECT "status" FROM "orders" GROUP BY COALESCE($1, status) ORDER BY CASE WHEN status = $2 THEN 0 ELSE 1 END',
+  );
+  assert.deepEqual(out.params, ["unknown", "paid"]);
+});
+
 test("MSSQL returning compiles as OUTPUT", () => {
   const insertOut = new QueryBuilder(fakeAdapter("mssql"), "users")
     .insert({ email: "a@b.com" })
@@ -188,6 +246,23 @@ test("Mongo compiles ANY/ALL with literal arrays", () => {
       { score: { $lt: 100 } },
     ],
   });
+});
+
+test("Mongo rejects selectRaw/selectExpr", () => {
+  const qb = new QueryBuilder(fakeAdapter("mongo"), "users")
+    .select("id")
+    .selectRaw("LOWER(email)");
+
+  assert.throws(() => qb.compile(), /mongo: selectRaw\/selectExpr is not supported/);
+});
+
+test("Mongo rejects groupByRaw/orderByRaw", () => {
+  const qb = new QueryBuilder(fakeAdapter("mongo"), "users")
+    .select("id")
+    .groupByRaw("LOWER(email)")
+    .orderByRaw("COUNT(*) DESC");
+
+  assert.throws(() => qb.compile(), /mongo: groupByRaw\/orderByRaw is not supported/);
 });
 
 test("Mongo compiles non-equality joins with $lookup pipeline", () => {
