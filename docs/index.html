@@ -653,6 +653,18 @@ const db = await QueryMesh.connect({
 
           <article class="code-card">
             <div class="code-head">
+              <span>Qualified wildcard</span>
+              <button class="copy" data-copy>Copy</button>
+            </div>
+            <pre><code>const rows = await db
+  .table("posts")
+  .leftJoinOn("users", "posts.user_id", "users.id")
+  .select(["posts.*", "users.email"])
+  .get();</code></pre>
+          </article>
+
+          <article class="code-card">
+            <div class="code-head">
               <span>Grouped where</span>
               <button class="copy" data-copy>Copy</button>
             </div>

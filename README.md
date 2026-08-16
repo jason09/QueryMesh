@@ -235,6 +235,16 @@ const users = await db
   .get();
 ```
 
+For SQL joins, qualified wildcards like `table.*` also work:
+
+```js
+const rows = await db
+  .table("posts")
+  .leftJoinOn("users", "posts.user_id", "users.id")
+  .select(["posts.*", "users.email"])
+  .get();
+```
+
 ### Where + OR
 
 ```js

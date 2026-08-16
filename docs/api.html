@@ -668,6 +668,7 @@ const id = toObjectIdSync(payload.userId, ObjectId);</code></pre>
             </div>
             <div class="method-body">
               <p>Use <code>selectExpr(sql, alias, params?)</code> when you want QueryMesh to quote the alias safely. Use <code>selectRaw(sql, params?)</code> when you want to provide the full select fragment yourself.</p>
+              <p>Qualified wildcards like <code>posts.*</code> are also accepted in <code>select(...)</code> for SQL dialects.</p>
             </div>
           </article>
 

@@ -132,6 +132,19 @@ test("selectRaw/selectExpr compile trusted SQL expressions", () => {
   assert.deepEqual(out.params, [true]);
 });
 
+test("select accepts qualified wildcards like table.*", () => {
+  const out = new QueryBuilder(fakeAdapter("pg"), "posts")
+    .select(["posts.*", "users.email"])
+    .leftJoinOn("users", "posts.user_id", "users.id")
+    .compile();
+
+  assert.equal(
+    out.sql,
+    'SELECT "posts".*, "users"."email" FROM "posts" LEFT JOIN "users" ON "posts"."user_id" = "users"."id"',
+  );
+  assert.deepEqual(out.params, []);
+});
+
 test("selectRaw carries bound params in SQL dialects", () => {
   const out = new QueryBuilder(fakeAdapter("pg"), "users")
     .select("id")

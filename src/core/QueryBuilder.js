@@ -1,6 +1,6 @@
 import { Raw } from './Raw.js';
 import { Identifier } from './Identifier.js';
-import { quoteIdent, isPlainObject } from '../utils/identifiers.js';
+import { quoteIdent, quoteQualifiedWildcard, isPlainObject } from '../utils/identifiers.js';
 import { prepareRawSql } from '../utils/rawSql.js';
 
 /**
@@ -74,6 +74,8 @@ export class QueryBuilder {
    */
   q(name) {
     const n = isId(name) ? name.name : String(name);
+    const wildcard = quoteQualifiedWildcard(/** @type {any} */(this.dialect), n);
+    if (wildcard) return wildcard;
     return quoteIdent(/** @type {any} */(this.dialect), n);
   }
 

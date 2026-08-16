@@ -52,6 +52,22 @@ export function quoteIdent(dialect, name) {
 }
 
 /**
+ * Quote a qualified wildcard like "users.*" or "public.users.*".
+ * Returns null when the input is not a qualified wildcard.
+ *
+ * @param {'pg'|'mysql'|'mssql'|'oracle'} dialect
+ * @param {string} name
+ * @returns {string|null}
+ */
+export function quoteQualifiedWildcard(dialect, name) {
+  const raw = String(name ?? '').trim();
+  if (!raw.endsWith('.*')) return null;
+  const base = raw.slice(0, -2);
+  if (!base) return null;
+  return `${quoteIdent(dialect, base)}.*`;
+}
+
+/**
  * @param {any} v
  * @returns {boolean}
  */
